@@ -1,5 +1,5 @@
 # Server Side Software
 - Language: JavaScript
-- Framework: Express
+- Framework: Express.js
 - Database: MySQL
 - Container: Docker-Compose
