@@ -4,24 +4,25 @@ var path = require('path');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
 
+const { database, createtable} = require('./public/model/db-querys');
 const aedes = require('aedes')()
 const server = require('net').createServer(aedes.handle)
-const mysql = require('mysql');
-
-// DBに接続する設定情報
-const con = mysql.createConnection({
-    host: 'mysql',
-    user: 'nonodebri',
-    password: 'NoNou22',
-    database: 'iot'
-});
 
 var app = express();
 
-con.connect((err) => {
+// Database connect
+database().connect((err) => {
     if (err) throw err;
     console.log('Connected');
+
+    try {
+      createtable();
+    } catch (e) {
+      console.error(e);
+    }
+    
 });
+//database().useDatabase('iot')
 
 // view engine setup
 app.set('port', process.env.PORT || 1883);
@@ -33,7 +34,6 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
-
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
@@ -51,38 +51,66 @@ app.use(function(err, req, res, next) {
   res.render('error');
 });
 
-// クライアントエラーの場合
+//Register Data to MySQL
+const insert_data = (payload) => {
+  var sql = 'INSERT INTO data VALUES (?, ?, ?, ?, ?, ?);'
+  var palams = [
+    null,
+    payload.interested, 
+    payload.age, 
+    payload.gender, 
+    payload.start_time, 
+    payload.end_time
+  ]
+  //Throw query and Save data
+  database().query(sql, palams, function(error, response){
+    if(error) throw error;
+    console.log(response);
+  })
+  database().end();
+}
+
+//////////MQTT setting
+// MQTT Broker
+server.listen(app.get('port'), function () {
+	console.log('server listening on port', app.get('port'))
+})
+
+// Client Eroor
 aedes.on('clientError', function (client, err) {
 	console.log('client error', client.id, err.message, err.stack)
 })
 
-// 接続エラーの場合
+// Connected Error
 aedes.on('connectionError', function (client, err) {
 	console.log('client error', client, err.message, err.stack)
 })
 
-// publishされた場合
-aedes.on('publish', function (packet, client) {
-	if (client) {
-		console.log('message from client', client.id)
-	}
-})
-
-// 新しいsubscriberが接続した場合
+// New Subscriber Connect
 aedes.on('subscribe', function (subscriptions, client) {
 	if (client) {
 		console.log('subscribe from client', subscriptions, client.id)
 	}
 })
 
-// 新しいクライアントが接続した場合
+// New Client Connect
 aedes.on('client', function (client) {
 	console.log('new client', client.id)
 })
 
-// MQTTブローカー起動
-server.listen(app.get('port'), function () {
-	console.log('server listening on port', app.get('port'))
+var text_decoder = new TextDecoder("utf-8");
+
+// Publisher Connect
+// Recieve data
+aedes.on('publish', function (packet, client) {
+	if (client) {
+		console.log('message from client', client.id)
+    //Payload: binary -> utf-8
+    var payload = text_decoder.decode(Uint8Array.from(packet.payload).buffer)
+    payload = JSON.parse(payload)
+    insert_data(payload)
+	}
 })
+///////////////
 
 module.exports = app;
