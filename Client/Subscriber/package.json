@@ -1,0 +1,23 @@
+{
+  "name": "mqtt",
+  "version": "0.0.1",
+  "description": "REST to MQTT server",
+  "main": "subscriber.js",
+  "scripts": {
+    "start": "node subscriber.js",
+    "test": "node subscriber.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "test"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "body-parser": "^1.18.1",
+    "express": "^4.15.4",
+    "lodash": "^4.17.4",
+    "moment-timezone": "^0.5.13",
+    "mqtt": "^4.3.7"
+  }
+}
