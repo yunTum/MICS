@@ -25,12 +25,12 @@ CAM_FPS = 30
 DISTANCE_MAGNIFICATION = 1.16
 #PERSON_REIDENTIFICATION_MODEL = 'person-reidentification-retail-0288'
 PERSON_REIDENTIFICATION_MODEL = 'person-reidentification-retail-0287'
-THRESHOLD_PERSON_REIDENTIFICATION = ((0.55,     #[0][1] = Get data threshold (face)
-                                      0.95,     #[0][2] = Update id threshold (face)
-                                      0.15),    #[0][3] = Create object threshold (face)
-                                     (0.55,     #[1][1] = Get data threshold (person)
-                                      0.95,     #[1][2] = Update id threshold (person)
-                                      0.15))    #[1][3] = Create object threshold (person)
+THRESHOLD_PERSON_REIDENTIFICATION = ((0.60,     #[0][1] = Get data threshold (face)
+                                      0.85,     #[0][2] = Update id threshold (face)
+                                      0.40),    #[0][3] = Create object threshold (face)
+                                     (0.60,     #[1][1] = Get data threshold (person)
+                                      0.85,     #[1][2] = Update id threshold (person)
+                                      0.60))    #[1][3] = Create object threshold (person)
 
 
 # Functions
@@ -181,26 +181,28 @@ def CheckWithinRectangle(x_min1, y_min1, x_max1, y_max1, x_min2, y_min2, x_max2,
 
 # Class
 class Object:
-    def __init__(self, input_id, x_min, y_min, x_max, y_max):
+    def __init__(self, input_id, x_min, y_min, x_max, y_max, first_time, last_time):
         self.obj_id = input_id
         self.x_min = int(x_min)
         self.x_max = int(x_max)
         self.y_min = int(y_min)
         self.y_max = int(y_max)
+        self.first_time = first_time
+        self.last_time = last_time
 
 
 class Person:
-    def Update(self, update_mode, input_id, update_id_flag, x_min, y_min, x_max, y_max):
+    def Update(self, update_mode, input_id, update_id_flag, x_min, y_min, x_max, y_max, last_time):
         if update_mode == 'person':
             if update_id_flag == True:
-                self.person.temporary_object = Object(input_id, x_min, y_min, x_max, y_max)
+                self.person.temporary_object = Object(input_id, x_min, y_min, x_max, y_max, self.face.temporary_object.first_time, last_time)
             else:
-                self.person.temporary_object = Object(self.person.temporary_object.obj_id, x_min, y_min, x_max, y_max)
+                self.person.temporary_object = Object(self.person.temporary_object.obj_id, x_min, y_min, x_max, y_max, self.face.temporary_object.first_time, last_time)
         elif update_mode == 'face':
             if update_id_flag == True:
-                self.face.temporary_object = Object(input_id, x_min, y_min, x_max, y_max)
+                self.face.temporary_object = Object(input_id, x_min, y_min, x_max, y_max, self.face.temporary_object.first_time, last_time)
             else:
-                self.face.temporary_object = Object(self.face.temporary_object.obj_id, x_min, y_min, x_max, y_max)   
+                self.face.temporary_object = Object(self.face.temporary_object.obj_id, x_min, y_min, x_max, y_max, self.face.temporary_object.first_time, last_time)   
         
     def __init__(self, person, face):
         self.face = face
@@ -208,24 +210,24 @@ class Person:
         print('Create new person object!')
 
 class TemporaryObject:
-    def Update(self, input_id, update_id_flag, x_min, y_min, x_max, y_max):
+    def Update(self, input_id, update_id_flag, x_min, y_min, x_max, y_max, last_time):
         if update_id_flag == True:
-            self.temporary_object = Object(input_id, x_min, y_min, x_max, y_max)
+            self.temporary_object = Object(input_id, x_min, y_min, x_max, y_max, self.temporary_object.first_time, last_time)
         else:
-            self.temporary_object = Object(self.temporary_object.obj_id, x_min, y_min, x_max, y_max)
-    def __init__(self, input_id, x_min, y_min, x_max, y_max):
-        self.Update(input_id, True, x_min, y_min, x_max, y_max)
+            self.temporary_object = Object(self.temporary_object.obj_id, x_min, y_min, x_max, y_max, self.temporary_object.first_time, last_time)
+    def __init__(self, input_id, x_min, y_min, x_max, y_max, first_time):
+        self.temporary_object = Object(input_id, x_min, y_min, x_max, y_max, first_time, first_time)
         print('Create new temporary object!')
 
 
 
-def CheckPersonClassList(result_of_id, class_list, face_or_person, threshold_list, x_min, y_min, x_max, y_max):
+def CheckPersonClassList(result_of_id, class_list, face_or_person, threshold_list, x_min, y_min, x_max, y_max, now_time):
     if len(class_list) != 0:
         if face_or_person == 'face':
             p_id = CheckParentObject(class_list, x_min, y_min, x_max, y_max)
             if p_id != -1:
-                #if GetFaceCosineSimilarity(result_of_id, class_list[p_id].face.temporary_object.obj_id) > threshold_list[0][0] and True:
-                    class_list[p_id].Update('face', result_of_id, True, x_min, y_min, x_max, y_max)
+                if class_list[p_id].person.temporary_object.last_time == now_time:
+                    class_list[p_id].Update('face', result_of_id, True, x_min, y_min, x_max, y_max, now_time)
                     return p_id
 
         i_list = []
@@ -249,20 +251,20 @@ def CheckPersonClassList(result_of_id, class_list, face_or_person, threshold_lis
                     max_i = i_list[j]
             if face_or_person == 'face':
                 if max_buf > threshold_list[0][1]:
-                    class_list[max_i].Update('face', result_of_id, True, x_min, y_min, x_max, y_max)
+                    class_list[max_i].Update('face', result_of_id, True, x_min, y_min, x_max, y_max, now_time)
                 else:
-                    class_list[max_i].Update('face', result_of_id, False, x_min, y_min, x_max, y_max)
+                    class_list[max_i].Update('face', result_of_id, False, x_min, y_min, x_max, y_max, now_time)
             elif face_or_person == 'person':
                 if max_buf > threshold_list[1][1]:
-                    class_list[max_i].Update('person', result_of_id, True, x_min, y_min, x_max, y_max)
+                    class_list[max_i].Update('person', result_of_id, True, x_min, y_min, x_max, y_max, now_time)
                 else:
-                    class_list[max_i].Update('person', result_of_id, False, x_min, y_min, x_max, y_max)
+                    class_list[max_i].Update('person', result_of_id, False, x_min, y_min, x_max, y_max, now_time)
             return max_i
         else:
             return - 1
     return -1
 
-def CheckTemporaryPersonClassList(result_of_id, child_class_list, face_or_person, threshold_list, x_min, y_min, x_max, y_max):
+def CheckTemporaryPersonClassList(result_of_id, child_class_list, face_or_person, threshold_list, x_min, y_min, x_max, y_max, now_time):
     result = 0
     if len(child_class_list) != 0:
         # Check list
@@ -290,25 +292,25 @@ def CheckTemporaryPersonClassList(result_of_id, child_class_list, face_or_person
                     max_buf = buf
                     max_i = i_list[j]
             if face_or_person == 'face' and max_buf > threshold_list[0][1]:
-                child_class_list[max_i].Update(result_of_id, True, x_min, y_min, x_max, y_max)
+                child_class_list[max_i].Update(result_of_id, True, x_min, y_min, x_max, y_max, now_time)
             elif face_or_person == 'person' and max_buf > threshold_list[1][1]: 
-                child_class_list[max_i].Update(result_of_id, True, x_min, y_min, x_max, y_max)
+                child_class_list[max_i].Update(result_of_id, True, x_min, y_min, x_max, y_max, now_time)
             else:
-                child_class_list[max_i].Update(result_of_id, False, x_min, y_min, x_max, y_max)
+                child_class_list[max_i].Update(result_of_id, False, x_min, y_min, x_max, y_max, now_time)
             result = max_i
         # New object
         else:
             if face_or_person == 'face' and np.max(all_list) < threshold_list[0][2]:
-                child_class_list.append(TemporaryObject(result_of_id, x_min, y_min, x_max, y_max)) 
+                child_class_list.append(TemporaryObject(result_of_id, x_min, y_min, x_max, y_max, now_time)) 
                 result = len(child_class_list) - 1
             elif face_or_person == 'person' and np.max(all_list) < threshold_list[1][2]: 
-                child_class_list.append(TemporaryObject(result_of_id, x_min, y_min, x_max, y_max)) 
+                child_class_list.append(TemporaryObject(result_of_id, x_min, y_min, x_max, y_max, now_time)) 
                 result = len(child_class_list) - 1
             else:
                 result = - 1
     # First object
     else:
-        child_class_list.append(TemporaryObject(result_of_id, x_min, y_min, x_max, y_max)) 
+        child_class_list.append(TemporaryObject(result_of_id, x_min, y_min, x_max, y_max, now_time)) 
         result = len(child_class_list) - 1
 
     return result
@@ -382,6 +384,9 @@ def Main():
         if ret==False:
             break
 
+        # Get now time
+        now_time = datetime.datetime.now()
+
         # Get person detction data
         result_of_person_detection = GetDetectionData(frame, exec_net_PD, input_name_PD, input_shape_PD)
         for person_object in result_of_person_detection[out_name_FD][0][0]:
@@ -395,14 +400,14 @@ def Main():
                 result_of_person_id = GetDetectionData(person, exec_net_PRR, input_name_PRR, input_shape_PRR)
 
                 # Update object
-                person_id_buf = CheckPersonClassList(result_of_person_id, person_list, 'person', THRESHOLD_PERSON_REIDENTIFICATION, px_min, py_min, px_max, py_max)
+                person_id_buf = CheckPersonClassList(result_of_person_id, person_list, 'person', THRESHOLD_PERSON_REIDENTIFICATION, px_min, py_min, px_max, py_max, now_time)
                 if person_id_buf == -1:
-                    buf = CheckTemporaryPersonClassList(result_of_person_id, temporary_person_list, 'person', THRESHOLD_PERSON_REIDENTIFICATION, px_min, py_min, px_max, py_max)
+                    buf = CheckTemporaryPersonClassList(result_of_person_id, temporary_person_list, 'person', THRESHOLD_PERSON_REIDENTIFICATION, px_min, py_min, px_max, py_max, now_time)
                     cv2.putText(frame, text='[id] body', org=(px_min, py_min - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 0, 255), thickness=2, lineType=cv2.LINE_AA)
                     cv2.putText(frame, text=' id = ' + str(buf), org=(px_min, py_min - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 0, 255), thickness=2, lineType=cv2.LINE_AA)
                 else:
-                    cv2.putText(frame, text='[id] person', org=(px_min, py_min - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 0, 255), thickness=2, lineType=cv2.LINE_AA)
-                    cv2.putText(frame, text=' id = ' + str(person_id_buf), org=(px_min, py_min - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 0, 255), thickness=2, lineType=cv2.LINE_AA)
+                    cv2.putText(frame, text='[id] person', org=(px_min, py_min - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 127), thickness=2, lineType=cv2.LINE_AA)
+                    cv2.putText(frame, text=' id = ' + str(person_id_buf), org=(px_min, py_min - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 127), thickness=2, lineType=cv2.LINE_AA)
 
                 # Show in window
                 cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (0, 0, 255), 2)
@@ -440,15 +445,15 @@ def Main():
                 result_of_face_id = GetDetectionData(face, exec_net_FRR, input_name_FRR, input_shape_FRR)
 
                 # Update object
-                person_id_buf = CheckPersonClassList(result_of_face_id, person_list, 'face', THRESHOLD_PERSON_REIDENTIFICATION, x_min, y_min, x_max, y_max)
+                person_id_buf = CheckPersonClassList(result_of_face_id, person_list, 'face', THRESHOLD_PERSON_REIDENTIFICATION, x_min, y_min, x_max, y_max, now_time)
                 if person_id_buf == -1:
-                    buf = CheckTemporaryPersonClassList(result_of_face_id, temporary_face_list, 'face', THRESHOLD_PERSON_REIDENTIFICATION, x_min, y_min, x_max, y_max)
+                    buf = CheckTemporaryPersonClassList(result_of_face_id, temporary_face_list, 'face', THRESHOLD_PERSON_REIDENTIFICATION, x_min, y_min, x_max, y_max, now_time)
                     CheckParentObjectAndMerge(person_list,temporary_person_list,temporary_face_list, buf )
                     cv2.putText(frame, text='[id] face', org=(x_min, y_min - 65), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
                     cv2.putText(frame, text=' id = ' + str(buf), org=(x_min, y_min - 45), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
                 else:
-                    cv2.putText(frame, text='[id] person', org=(x_min, y_min - 65), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                    cv2.putText(frame, text=' id = ' + str(person_id_buf), org=(x_min, y_min - 45), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                    cv2.putText(frame, text='[id] person', org=(x_min, y_min - 65), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 127), thickness=2, lineType=cv2.LINE_AA)
+                    cv2.putText(frame, text=' id = ' + str(person_id_buf), org=(x_min, y_min - 45), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 127), thickness=2, lineType=cv2.LINE_AA)
                 
 
                 # Show data in frame
