@@ -4,10 +4,10 @@ const mysql = require('mysql');
 // DB Setting
 const database = () => {
     const con = mysql.createConnection({
-        host: 'mysql',
-        user: 'nonodebri',
-        password: 'NoNou22',
-        database: 'iot'
+        host: 'us-cdbr-east-06.cleardb.net',
+        user: 'bd4dceab87de57',
+        password: '33f46b06',
+        database: 'heroku_10ab3b9d2993672'
     });
     return con
 };
