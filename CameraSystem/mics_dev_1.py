@@ -1,6 +1,7 @@
-##############
-# mics_dev_1 #
-##############
+# mics_dev_1
+# 2022 kasys1422
+# The core app of MICS
+VERSION = '0.0.5'
 
 # Import
 import math
@@ -30,7 +31,6 @@ THRESHOLD_PERSON_REIDENTIFICATION = ((0.60,     #[0][1] = Get data threshold (fa
                                      (0.60,     #[1][1] = Get data threshold (person)
                                       0.85,     #[1][2] = Update id threshold (person)
                                       0.60))    #[1][3] = Create object threshold (person)
-
 
 # Functions
 
@@ -182,6 +182,13 @@ def CheckContactRectangle(x_min1, y_min1, x_max1, y_max1, x_min2, y_min2, x_max2
     else:
         return False
 
+def GetIndexFromObjectGlobalID(global_id, object_list):
+    i = 0
+    for obj in object_list:
+        if obj.global_id == global_id:
+            return i
+        i += 1    
+
 # Class
 global_id = 0
 class Object:
@@ -199,7 +206,7 @@ class Object:
         self.estimated_x_max = int(x_max)
         self.estimated_y_min = int(y_min)
         self.estimated_y_max = int(y_max)
-        self.number_of_frame = 0
+        self.number_of_frame = 1
         global global_id
         self.global_id = global_id
         global_id += 1
@@ -226,35 +233,40 @@ class Object:
         self.estimated_y_max = int(y_max) + self.y_delta[0]
         self.number_of_frame += 1
 
+    def UpdateLastTime(self, last_time):
+        self.last_time = last_time
+
 class Face(Object):
     def __init__(self, input_id, x_min, y_min, x_max, y_max, first_time, age, gender, perspective):
         super().__init__(input_id, x_min, y_min, x_max, y_max, first_time, first_time)
-        self.body_id = -1
-        self.age = age
-        self.gender = gender
-        self.perspective = perspective
-
-    def Update(self, input_id, x_min, y_min, x_max, y_max, last_time, age, gender, perspective):
-        super().Update(input_id, x_min, y_min, x_max, y_max, last_time)
         self.linked_body_id = -1
         self.age = age
         self.gender = gender
         self.perspective = perspective
 
+    def Update(self, input_id, x_min, y_min, x_max, y_max, last_time, age, gender, perspective, body_list):
+        super().Update(input_id, x_min, y_min, x_max, y_max, last_time)
+        self.age = age
+        self.gender = gender
+        self.perspective = perspective
+        if self.linked_body_id != -1:
+            body_list[GetIndexFromObjectGlobalID(self.linked_body_id, body_list)].last_time = last_time
+
+    def __del__(self):
+        print('delete face object [global id =' + str(self.global_id) + ']')
+            
 class Body(Object):
     def __init__(self, input_id, x_min, y_min, x_max, y_max, first_time):
         super().__init__(input_id, x_min, y_min, x_max, y_max, first_time, first_time)
         self.linked_face_id = -1
 
-    def Update(self, input_id, x_min, y_min, x_max, y_max, last_time):
+    def Update(self, input_id, x_min, y_min, x_max, y_max, last_time, face_list):
         super().Update(input_id, x_min, y_min, x_max, y_max, last_time)
+        if self.linked_face_id != -1:
+            face_list[GetIndexFromObjectGlobalID(self.linked_face_id, face_list)].last_time = last_time
 
-def GetIndexFromObjectGlobalID(global_id, object_list):
-    i = 0
-    for obj in object_list:
-        if obj.global_id == global_id:
-            return i
-        i += 1    
+    def __del__(self):
+        print('delete body object [global id =' + str(self.global_id) + ']')
 
 def CheckParentObject(body_class, x_min, y_min, x_max, y_max, now_time):
     result = -1
@@ -265,10 +277,13 @@ def CheckParentObject(body_class, x_min, y_min, x_max, y_max, now_time):
                 break
     return result
 
+def PushDatabase(body_class_object, face_list):
+    print('pushed person object to databese')
+
 # Main
 def Main():
     # Launch message
-    print('[mics-dev version0.0.4]')
+    print('[mics-dev version' + VERSION + ']')
 
     # Setup camera
     capture = SetupCamera(CAM_ID, CAM_X, CAM_Y, CAM_FPS)
@@ -341,7 +356,7 @@ def Main():
                     contact_body_list = []
                     contact_body_last = -1
                     for j in range(len(body_list)):
-                        if CheckContactRectangle(float(temporary_body_list[i][1]), float(temporary_body_list[i][2]), float(temporary_body_list[i][3]), float(temporary_body_list[i][4]), body_list[j].estimated_x_min, body_list[j].estimated_y_min, body_list[j].estimated_x_max, body_list[j].estimated_y_max) == True and body_list[j].last_time == now_time:
+                        if CheckContactRectangle(float(temporary_body_list[i][1]), float(temporary_body_list[i][2]), float(temporary_body_list[i][3]), float(temporary_body_list[i][4]), body_list[j].estimated_x_min, body_list[j].estimated_y_min, body_list[j].estimated_x_max, body_list[j].estimated_y_max) == True and now_time - body_list[j].last_time < datetime.timedelta(seconds=1):
                             contact_body_list.append(j)
                             contact_body_last = j
                     for j in range(len(body_list)):
@@ -350,9 +365,9 @@ def Main():
                             if len(contact_body_list) == 1 and contact_body_last == j or cos_sim > 0.60:
                                 contact_body_list.append(j)
                                 if cos_sim > 0.60:
-                                    body_list[j].Update(temporary_body_list[i][0], temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], now_time)
+                                    body_list[j].Update(temporary_body_list[i][0], temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], now_time, face_list)
                                 else: 
-                                    body_list[j].Update(body_list[j].obj_id, temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], now_time)
+                                    body_list[j].Update(body_list[j].obj_id, temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], now_time, face_list)
                                 #print( CheckContactRectangle(temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], body_list[j].estimated_x_min, body_list[j].estimated_y_min, body_list[j].estimated_x_max, body_list[j].estimated_y_max))
                                 cv2.rectangle(frame, (int(body_list[j].estimated_x_min), int(body_list[j].estimated_y_min)), (int(body_list[j].estimated_x_max), int(body_list[j].estimated_y_max)), (127, 127, 255), 2)
                                 temporary_body_list[i][0] = -1
@@ -405,7 +420,7 @@ def Main():
                 # Show data in frame
                 # Face Detection
                 cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-                if False:
+                if True:
                     # Age Gender Detection
                     cv2.putText(frame, text='[gender, age]', org=(x_min, y_min - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
                     age_gender = ' '+result_of_age_gender_detection[1] + ', ' + str(result_of_age_gender_detection[0])
@@ -448,7 +463,7 @@ def Main():
                         if body_list[check_body].linked_face_id != -1:
                             face_index = GetIndexFromObjectGlobalID(body_list[check_body].linked_face_id, face_list)
                             if face_index != None:
-                                face_list[face_index].Update(temporary_face_list[i][0], temporary_face_list[i][1], temporary_face_list[i][2], temporary_face_list[i][3], temporary_face_list[i][4], now_time, temporary_face_list[i][5], temporary_face_list[i][6], temporary_face_list[i][7])
+                                face_list[face_index].Update(temporary_face_list[i][0], temporary_face_list[i][1], temporary_face_list[i][2], temporary_face_list[i][3], temporary_face_list[i][4], now_time, temporary_face_list[i][5], temporary_face_list[i][6], temporary_face_list[i][7], body_list)
                                 cv2.rectangle(frame, (int(face_list[face_index].estimated_x_min), int(face_list[face_index].estimated_y_min)), (int(face_list[face_index].estimated_x_max), int(face_list[face_index].estimated_y_max)), (127, 255, 127), 2)
                                 temporary_face_list[i][0] = -1
                                 cv2.putText(frame, text='[id] face', org=(face_list[face_index].x_min[0], face_list[face_index].y_min[0] - 65), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
@@ -467,9 +482,9 @@ def Main():
                                 if len(contact_face_list) == 1 and contact_face_last == j or cos_sim > 0.55:
                                     contact_face_list.append(j)
                                     if cos_sim > 0.60:
-                                        face_list[j].Update(temporary_face_list[i][0], temporary_face_list[i][1], temporary_face_list[i][2], temporary_face_list[i][3], temporary_face_list[i][4], now_time, temporary_face_list[i][5], temporary_face_list[i][6], temporary_face_list[i][7])
+                                        face_list[j].Update(temporary_face_list[i][0], temporary_face_list[i][1], temporary_face_list[i][2], temporary_face_list[i][3], temporary_face_list[i][4], now_time, temporary_face_list[i][5], temporary_face_list[i][6], temporary_face_list[i][7], body_list)
                                     else: 
-                                        face_list[j].Update(face_list[j].obj_id, temporary_face_list[i][1], temporary_face_list[i][2], temporary_face_list[i][3], temporary_face_list[i][4], now_time, temporary_face_list[i][5], temporary_face_list[i][6], temporary_face_list[i][7])
+                                        face_list[j].Update(face_list[j].obj_id, temporary_face_list[i][1], temporary_face_list[i][2], temporary_face_list[i][3], temporary_face_list[i][4], now_time, temporary_face_list[i][5], temporary_face_list[i][6], temporary_face_list[i][7], body_list)
                                     #print( CheckContactRectangle(temporary_face_list[i][1], temporary_face_list[i][2], temporary_face_list[i][3], temporary_face_list[i][4], face_list[j].estimated_x_min, face_list[j].estimated_y_min, face_list[j].estimated_x_max, face_list[j].estimated_y_max))
                                     cv2.rectangle(frame, (int(face_list[j].estimated_x_min), int(face_list[j].estimated_y_min)), (int(face_list[j].estimated_x_max), int(face_list[j].estimated_y_max)), (127, 255, 127), 2)
                                     temporary_face_list[i][0] = -1
@@ -483,24 +498,36 @@ def Main():
                 if temporary_face_list[i][0] != -1:
                     face_list.append(Face(temporary_face_list[i][0], temporary_face_list[i][1], temporary_face_list[i][2], temporary_face_list[i][3], temporary_face_list[i][4], now_time, temporary_face_list[i][5], temporary_face_list[i][6], temporary_face_list[i][7]))
                     print ('create face object')        
-        
-
 
         # Delete error objects
         if len(face_list) != 0:
             di = 0
             for i in range(len(face_list)):
-                if face_list[i - di].number_of_frame < 5 and now_time - face_list[i - di].last_time > datetime.timedelta(seconds=1):
+                if face_list[i - di].number_of_frame < 5 and now_time - face_list[i - di].last_time > datetime.timedelta(seconds=2):
                     del face_list[i - di]
-                    di += 1
-                    print ('delete face object')        
+                    di += 1      
         if len(body_list) != 0:
             di = 0
             for i in range(len(body_list)):
-                if body_list[i - di].number_of_frame < 5 and now_time - body_list[i - di].last_time > datetime.timedelta(seconds=1):
+                if body_list[i - di].number_of_frame < 5 and now_time - body_list[i - di].last_time > datetime.timedelta(seconds=2):
                     del body_list[i - di]
-                    di += 1
-                    print ('delete body object')        
+                    di += 1     
+        
+        # Delete lost objects
+        if len(body_list) != 0:
+            di = 0
+            for i in range(len(body_list)):
+                if body_list[i - di].number_of_frame > 5 and now_time - body_list[i - di].last_time > datetime.timedelta(seconds=20):
+                    PushDatabase(body_list[i - di], face_list)
+                    del body_list[i - di]
+                    di += 1  
+        if len(face_list) != 0:
+            di = 0
+            for i in range(len(face_list)):
+                if face_list[i - di].number_of_frame > 5 and now_time - face_list[i - di].last_time > datetime.timedelta(seconds=20):
+                    del face_list[i - di]
+                    di += 1      
+ 
 
         # Show FPS
         frame_rate = DrawFPS(frame, fps_time, 10, 10)
