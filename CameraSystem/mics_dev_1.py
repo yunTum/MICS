@@ -1,9 +1,10 @@
-##############
-# mics_dev_1 #
-##############
+# mics_dev_1
+# 2022 kasys1422
+# The core app of MICS
+VERSION = '0.0.5'
 
 # Import
-from asyncio.windows_events import NULL
+
 import math
 import numpy as np
 import cv2
@@ -15,7 +16,7 @@ from openvino.inference_engine import IECore
 
 #DEVICE_NAME = 'MYRIAD'               # Use MYRIAD
 DEVICE_NAME = 'CPU'                   # Use CPU
-THRESHOLD_PERSON_DETECTION = 0.80
+THRESHOLD_PERSON_DETECTION = 0.75
 THRESHOLD_FACE_DETECTION = 0.75
 ANGLE_OF_VIEW = 70
 CAM_ID = 0
@@ -23,15 +24,11 @@ CAM_X = 1280
 CAM_Y = 720
 CAM_FPS = 30
 DISTANCE_MAGNIFICATION = 1.16
-#PERSON_REIDENTIFICATION_MODEL = 'person-reidentification-retail-0288'
-PERSON_REIDENTIFICATION_MODEL = 'person-reidentification-retail-0287'
-THRESHOLD_PERSON_REIDENTIFICATION = ((0.60,     #[0][1] = Get data threshold (face)
-                                      0.85,     #[0][2] = Update id threshold (face)
-                                      0.40),    #[0][3] = Create object threshold (face)
-                                     (0.60,     #[1][1] = Get data threshold (person)
-                                      0.85,     #[1][2] = Update id threshold (person)
-                                      0.60))    #[1][3] = Create object threshold (person)
-
+PERSON_REIDENTIFICATION_MODEL = 'person-reidentification-retail-0288'
+THRESHOLD_PERSON_REIDENTIFICATION = ((0.60,     #[0][1] = Get data threshold (person)
+                                      0.60),    #[0][2] = Update id threshold (person)
+                                     (0.55,     #[1][1] = Get data threshold (face)
+                                      0.60))    #[1][2] = Update id threshold (face)
 
 # Functions
 
@@ -154,187 +151,130 @@ def GetCosineSimilarity(vec1, vec2):
     return a / (b * c)
 
 def GetPersonCosineSimilarity(vec1, vec2):
-    if PERSON_REIDENTIFICATION_MODEL == 'person-reidentification-retail-0288':
-        vec1 = vec1['reid_embedding'][:]
-        vec2 = vec2['reid_embedding'][:]
-        return GetCosineSimilarity(vec1, vec2)
-    elif PERSON_REIDENTIFICATION_MODEL == 'person-reidentification-retail-0287':
-        vec1 = vec1['reid_embedding'][:]
-        vec2 = vec2['reid_embedding'][:]
-        return GetCosineSimilarity(vec1, vec2)
-    else:
-        return 0
+    vec1 = vec1['reid_embedding'][:]
+    vec2 = vec2['reid_embedding'][:]
+    return GetCosineSimilarity(vec1, vec2)
 
 def GetFaceCosineSimilarity(vec1, vec2):
     vec1 = vec1['658'][:]
     vec2 = vec2['658'][:]
     return GetCosineSimilarity(vec1, vec2)
 
-# Check if it is in the rectangle.(obj1 is outside)
-def CheckWithinRectangle(x_min1, y_min1, x_max1, y_max1, x_min2, y_min2, x_max2, y_max2):
+# Check if it is in the rectangle.(rectangle1 is outside)
+def CheckInsideRectangle(x_min1, y_min1, x_max1, y_max1, x_min2, y_min2, x_max2, y_max2):
     if x_min1 < x_min2 and y_min1 < y_min2 and x_max1 > x_max2 and y_max1 > y_max2:
         return True
     else:
         return False
 
+def CheckContactRectangle(x_min1, y_min1, x_max1, y_max1, x_min2, y_min2, x_max2, y_max2):
+    if (max(x_min1, x_min2) < min(x_max1, x_max2)) and (max(y_max1, y_max2) > min(y_min1, y_min2)):
+        return True
+    else:
+        return False
 
+def GetIndexFromObjectGlobalID(global_id, object_list):
+    i = 0
+    for obj in object_list:
+        if obj.global_id == global_id:
+            return i
+        i += 1    
 
 # Class
+global_id = 0
 class Object:
     def __init__(self, input_id, x_min, y_min, x_max, y_max, first_time, last_time):
         self.obj_id = input_id
-        self.x_min = int(x_min)
-        self.x_max = int(x_max)
-        self.y_min = int(y_min)
-        self.y_max = int(y_max)
+        self.x_min = [int(x_min)]
+        self.x_max = [int(x_max)]
+        self.y_min = [int(y_min)]
+        self.y_max = [int(y_max)]
+        self.x_delta = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        self.y_delta = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         self.first_time = first_time
         self.last_time = last_time
+        self.estimated_x_min = int(x_min)
+        self.estimated_x_max = int(x_max)
+        self.estimated_y_min = int(y_min)
+        self.estimated_y_max = int(y_max)
+        self.number_of_frame = 1
+        global global_id
+        self.global_id = global_id
+        global_id += 1
+    
+    def Update(self, input_id, x_min, y_min, x_max, y_max, last_time):
+        self.obj_id = input_id
+        self.x_min.insert(0, int(x_min))
+        self.x_max.insert(0, int(x_max))
+        self.y_min.insert(0, int(y_min))
+        self.y_max.insert(0, int(y_max))
+        self.x_delta.insert(0, ((self.x_max[0] + self.x_min[0]) / 2) - ((self.x_max[1] + self.x_min[1]) / 2))
+        self.y_delta.insert(0, ((self.y_max[0] + self.y_min[0]) / 2) - ((self.y_max[1] + self.y_min[1]) / 2))
+        if len(self.x_min) > 10:
+            self.x_min.pop(10)
+            self.x_max.pop(10)
+            self.y_min.pop(10)
+            self.y_max.pop(10)
+            self.x_delta.pop(10)
+            self.y_delta.pop(10)            
+        self.last_time = last_time
+        self.estimated_x_min = int(x_min) + self.x_delta[0]
+        self.estimated_x_max = int(x_max) + self.x_delta[0]
+        self.estimated_y_min = int(y_min) + self.y_delta[0]
+        self.estimated_y_max = int(y_max) + self.y_delta[0]
+        self.number_of_frame += 1
 
+    def UpdateLastTime(self, last_time):
+        self.last_time = last_time
 
-class Person:
-    def Update(self, update_mode, input_id, update_id_flag, x_min, y_min, x_max, y_max, last_time):
-        if update_mode == 'person':
-            if update_id_flag == True:
-                self.person.temporary_object = Object(input_id, x_min, y_min, x_max, y_max, self.face.temporary_object.first_time, last_time)
-            else:
-                self.person.temporary_object = Object(self.person.temporary_object.obj_id, x_min, y_min, x_max, y_max, self.face.temporary_object.first_time, last_time)
-        elif update_mode == 'face':
-            if update_id_flag == True:
-                self.face.temporary_object = Object(input_id, x_min, y_min, x_max, y_max, self.face.temporary_object.first_time, last_time)
-            else:
-                self.face.temporary_object = Object(self.face.temporary_object.obj_id, x_min, y_min, x_max, y_max, self.face.temporary_object.first_time, last_time)   
-        
-    def __init__(self, person, face):
-        self.face = face
-        self.person = person
-        print('Create new person object!')
+class Face(Object):
+    def __init__(self, input_id, x_min, y_min, x_max, y_max, first_time, age, gender, perspective):
+        super().__init__(input_id, x_min, y_min, x_max, y_max, first_time, first_time)
+        self.linked_body_id = -1
+        self.age = age
+        self.gender = gender
+        self.perspective = perspective
 
-class TemporaryObject:
-    def Update(self, input_id, update_id_flag, x_min, y_min, x_max, y_max, last_time):
-        if update_id_flag == True:
-            self.temporary_object = Object(input_id, x_min, y_min, x_max, y_max, self.temporary_object.first_time, last_time)
-        else:
-            self.temporary_object = Object(self.temporary_object.obj_id, x_min, y_min, x_max, y_max, self.temporary_object.first_time, last_time)
+    def Update(self, input_id, x_min, y_min, x_max, y_max, last_time, age, gender, perspective, body_list):
+        super().Update(input_id, x_min, y_min, x_max, y_max, last_time)
+        self.age = age
+        self.gender = gender
+        self.perspective = perspective
+        if self.linked_body_id != -1:
+            body_list[GetIndexFromObjectGlobalID(self.linked_body_id, body_list)].last_time = last_time
+
+    def __del__(self):
+        print('delete face object [global id =' + str(self.global_id) + ']')
+            
+class Body(Object):
     def __init__(self, input_id, x_min, y_min, x_max, y_max, first_time):
-        self.temporary_object = Object(input_id, x_min, y_min, x_max, y_max, first_time, first_time)
-        print('Create new temporary object!')
+        super().__init__(input_id, x_min, y_min, x_max, y_max, first_time, first_time)
+        self.linked_face_id = -1
 
+    def Update(self, input_id, x_min, y_min, x_max, y_max, last_time, face_list):
+        super().Update(input_id, x_min, y_min, x_max, y_max, last_time)
+        if self.linked_face_id != -1:
+            face_list[GetIndexFromObjectGlobalID(self.linked_face_id, face_list)].last_time = last_time
 
+    def __del__(self):
+        print('delete body object [global id =' + str(self.global_id) + ']')
 
-def CheckPersonClassList(result_of_id, class_list, face_or_person, threshold_list, x_min, y_min, x_max, y_max, now_time):
-    if len(class_list) != 0:
-        if face_or_person == 'face':
-            p_id = CheckParentObject(class_list, x_min, y_min, x_max, y_max)
-            if p_id != -1:
-                if class_list[p_id].person.temporary_object.last_time == now_time:
-                    class_list[p_id].Update('face', result_of_id, True, x_min, y_min, x_max, y_max, now_time)
-                    return p_id
-
-        i_list = []
-        for i in range(len(class_list)):
-            if face_or_person == 'face':
-                if GetFaceCosineSimilarity(result_of_id, class_list[i].face.temporary_object.obj_id) > threshold_list[0][0]:
-                    i_list.append(i)
-            else:
-                if GetPersonCosineSimilarity(result_of_id, class_list[i].person.temporary_object.obj_id) > threshold_list[1][0]:
-                    i_list.append(i)
-        if len(i_list) != 0:
-            max_i = i_list[0]
-            max_buf = 0
-            for j in range(len(i_list)):
-                if face_or_person == 'face':
-                    buf = GetFaceCosineSimilarity(result_of_id, class_list[i_list[j]].face.temporary_object.obj_id)
-                else:
-                    buf = GetPersonCosineSimilarity(result_of_id, class_list[i_list[j]].person.temporary_object.obj_id)
-                if max_buf < buf:
-                    max_buf = buf
-                    max_i = i_list[j]
-            if face_or_person == 'face':
-                if max_buf > threshold_list[0][1]:
-                    class_list[max_i].Update('face', result_of_id, True, x_min, y_min, x_max, y_max, now_time)
-                else:
-                    class_list[max_i].Update('face', result_of_id, False, x_min, y_min, x_max, y_max, now_time)
-            elif face_or_person == 'person':
-                if max_buf > threshold_list[1][1]:
-                    class_list[max_i].Update('person', result_of_id, True, x_min, y_min, x_max, y_max, now_time)
-                else:
-                    class_list[max_i].Update('person', result_of_id, False, x_min, y_min, x_max, y_max, now_time)
-            return max_i
-        else:
-            return - 1
-    return -1
-
-def CheckTemporaryPersonClassList(result_of_id, child_class_list, face_or_person, threshold_list, x_min, y_min, x_max, y_max, now_time):
-    result = 0
-    if len(child_class_list) != 0:
-        # Check list
-        i_list = []
-        all_list = []
-        for i in range(len(child_class_list)):
-            if face_or_person == 'face':
-                all_list.append(GetFaceCosineSimilarity(result_of_id, child_class_list[i].temporary_object.obj_id))
-                if all_list[i] > threshold_list[0][0]:
-                    i_list.append(i)
-            else:
-                all_list.append(GetPersonCosineSimilarity(result_of_id, child_class_list[i].temporary_object.obj_id))
-                if all_list[i] > threshold_list[1][0]:
-                    i_list.append(i)
-        # Update object
-        if len(i_list) != 0:
-            max_i = i_list[0]
-            max_buf = 0
-            for j in range(len(i_list)):
-                if face_or_person == 'face':
-                    buf = GetFaceCosineSimilarity(result_of_id, child_class_list[i_list[j]].temporary_object.obj_id)
-                else:
-                    buf = GetPersonCosineSimilarity(result_of_id, child_class_list[i_list[j]].temporary_object.obj_id)
-                if max_buf < buf:
-                    max_buf = buf
-                    max_i = i_list[j]
-            if face_or_person == 'face' and max_buf > threshold_list[0][1]:
-                child_class_list[max_i].Update(result_of_id, True, x_min, y_min, x_max, y_max, now_time)
-            elif face_or_person == 'person' and max_buf > threshold_list[1][1]: 
-                child_class_list[max_i].Update(result_of_id, True, x_min, y_min, x_max, y_max, now_time)
-            else:
-                child_class_list[max_i].Update(result_of_id, False, x_min, y_min, x_max, y_max, now_time)
-            result = max_i
-        # New object
-        else:
-            if face_or_person == 'face' and np.max(all_list) < threshold_list[0][2]:
-                child_class_list.append(TemporaryObject(result_of_id, x_min, y_min, x_max, y_max, now_time)) 
-                result = len(child_class_list) - 1
-            elif face_or_person == 'person' and np.max(all_list) < threshold_list[1][2]: 
-                child_class_list.append(TemporaryObject(result_of_id, x_min, y_min, x_max, y_max, now_time)) 
-                result = len(child_class_list) - 1
-            else:
-                result = - 1
-    # First object
-    else:
-        child_class_list.append(TemporaryObject(result_of_id, x_min, y_min, x_max, y_max, now_time)) 
-        result = len(child_class_list) - 1
-
-    return result
-
-def CheckParentObject(person_class, x_min, y_min, x_max, y_max):
+def CheckParentObject(body_class, x_min, y_min, x_max, y_max, now_time):
     result = -1
-    if len(person_class) != 0:
-        for i in range(len(person_class)):
-            if CheckWithinRectangle(person_class[i].person.temporary_object.x_min, person_class[i].person.temporary_object.y_min, person_class[i].person.temporary_object.x_max, person_class[i].person.temporary_object.y_max, x_min, y_min, x_max, y_max) == True:
+    if len(body_class) != 0:
+        for i in range(len(body_class)):
+            if CheckInsideRectangle(body_class[i].x_min[0], body_class[i].y_min[0], body_class[i].x_max[0], body_class[i].y_max[0], x_min, y_min, x_max, y_max) == True and body_class[i].last_time == now_time:
                 result = i
                 break
     return result
 
-def CheckParentObjectAndMerge(person_class, temporary_person_class, temporary_face_class, face_id_num):
-    if len(temporary_person_class) != 0:
-        for i in range(len(temporary_person_class)):
-            if CheckWithinRectangle(temporary_person_class[i].temporary_object.x_min, temporary_person_class[i].temporary_object.y_min, temporary_person_class[i].temporary_object.x_max, temporary_person_class[i].temporary_object.y_max, temporary_face_class[face_id_num].temporary_object.x_min, temporary_face_class[face_id_num].temporary_object.y_min,temporary_face_class[face_id_num].temporary_object.x_max, temporary_face_class[face_id_num].temporary_object.y_max) == True:
-                person_class.append(Person(temporary_person_class.pop(i), temporary_face_class.pop(face_id_num)))
-                break
+def PushDatabase(body_class_object, face_list):
+    print('pushed person object to databese')
 
 # Main
 def Main():
     # Launch message
-    print('[mics-dev version0.0.3]')
+    print('[mics-dev version' + VERSION + ']')
 
     # Setup camera
     capture = SetupCamera(CAM_ID, CAM_X, CAM_Y, CAM_FPS)
@@ -346,35 +286,28 @@ def Main():
     # Setup person detection
     input_name_PD, input_shape_PD, _, _, exec_net_PD = SetupModel(ie, DEVICE_NAME, './models/person-detection-retail-0013/FP16/person-detection-retail-0013')
 
-    # Setup person detection
-    input_name_PRR, input_shape_PRR, _, _, exec_net_PRR = SetupModel(ie, DEVICE_NAME, './models/' + PERSON_REIDENTIFICATION_MODEL + '/FP16/' + PERSON_REIDENTIFICATION_MODEL)
+    # Setup person re-identification
+    input_name_PR, input_shape_PR, _, _, exec_net_PR = SetupModel(ie, DEVICE_NAME, './models/person-reidentification-retail-0288/FP16/person-reidentification-retail-0288')
 
     # Setup face detection
     input_name_FD, input_shape_FD, out_name_FD, _, exec_net_FD = SetupModel(ie, DEVICE_NAME, './models/face-detection-adas-0001/FP16/face-detection-adas-0001')
 
-    # Setup person detection
-    input_name_FRR, input_shape_FRR, _, _, exec_net_FRR = SetupModel(ie, DEVICE_NAME, './models/face-reidentification-retail-0095/FP16/face-reidentification-retail-0095')
+    # Setup face re-identification
+    input_name_FR, input_shape_FR, _, _, exec_net_FR = SetupModel(ie, DEVICE_NAME, './models/face-reidentification-retail-0095/FP16/face-reidentification-retail-0095')
 
     # Setup age gender detectuon
     input_name_AGD, input_shape_AGD, _, _, exec_net_AGD = SetupModel(ie, DEVICE_NAME, './models/age-gender-recognition-retail-0013/FP16/age-gender-recognition-retail-0013')
     
-    # Setup face landmark detection
-    #input_name_LD, input_shape_LD, out_name_LD, _, exec_net_LD = SetupModel(ie, DEVICE_NAME, './models/facial-landmarks-35-adas-0002/FP16/facial-landmarks-35-adas-0002')
-
     # Setup face landmark(5) detection
     input_name_LD5, input_shape_LD5, out_name_LD5, _, exec_net_LD5 = SetupModel(ie, DEVICE_NAME, './models/landmarks-regression-retail-0009/FP16/landmarks-regression-retail-0009')
 
     # Setup head pose estimation
-    input_name_HPE, input_shape_HPE, out_name_HPE, out_shape_HPE, exec_net_HPE = SetupModel(ie, DEVICE_NAME, './models/head-pose-estimation-adas-0001/FP16/head-pose-estimation-adas-0001')
-
-    # Setup gaze estimation
-    #_, input_shape_GE, _, _, exec_net_GE = SetupModel(ie, DEVICE_NAME, './models/gaze-estimation-adas-0002/FP16/gaze-estimation-adas-0002')
+    input_name_HPE, input_shape_HPE, _, _, exec_net_HPE = SetupModel(ie, DEVICE_NAME, './models/head-pose-estimation-adas-0001/FP16/head-pose-estimation-adas-0001')
 
 
     # Create class object
-    person_list = []
-    temporary_person_list = []
-    temporary_face_list = []
+    face_list = []
+    body_list = []
 
 
     # Loop
@@ -388,6 +321,7 @@ def Main():
         now_time = datetime.datetime.now()
 
         # Get person detction data
+        temporary_body_list = []
         result_of_person_detection = GetDetectionData(frame, exec_net_PD, input_name_PD, input_shape_PD)
         for person_object in result_of_person_detection[out_name_FD][0][0]:
             if person_object[2] > THRESHOLD_PERSON_DETECTION:
@@ -397,31 +331,60 @@ def Main():
                 person = frame[py_min:py_max,px_min:px_max]
 
                 # Get person id and check
-                result_of_person_id = GetDetectionData(person, exec_net_PRR, input_name_PRR, input_shape_PRR)
+                result_of_person_id = GetDetectionData(person, exec_net_PR, input_name_PR, input_shape_PR)
 
                 # Update object
-                person_id_buf = CheckPersonClassList(result_of_person_id, person_list, 'person', THRESHOLD_PERSON_REIDENTIFICATION, px_min, py_min, px_max, py_max, now_time)
-                if person_id_buf == -1:
-                    buf = CheckTemporaryPersonClassList(result_of_person_id, temporary_person_list, 'person', THRESHOLD_PERSON_REIDENTIFICATION, px_min, py_min, px_max, py_max, now_time)
-                    cv2.putText(frame, text='[id] body', org=(px_min, py_min - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 0, 255), thickness=2, lineType=cv2.LINE_AA)
-                    cv2.putText(frame, text=' id = ' + str(buf), org=(px_min, py_min - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 0, 255), thickness=2, lineType=cv2.LINE_AA)
-                else:
-                    cv2.putText(frame, text='[id] person', org=(px_min, py_min - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 127), thickness=2, lineType=cv2.LINE_AA)
-                    cv2.putText(frame, text=' id = ' + str(person_id_buf), org=(px_min, py_min - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 127), thickness=2, lineType=cv2.LINE_AA)
-
+               
+                temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
                 # Show in window
                 cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (0, 0, 255), 2)
 
+        # Check body instance
+        if len(temporary_body_list) != 0:
+            for i in range(len(temporary_body_list)):
+                # Chack update body instance
+                if len(body_list) != 0:
+                    contact_body_list = []
+                    contact_body_last = -1
+                    for j in range(len(body_list)):
+                        if CheckContactRectangle(float(temporary_body_list[i][1]), float(temporary_body_list[i][2]), float(temporary_body_list[i][3]), float(temporary_body_list[i][4]), body_list[j].estimated_x_min, body_list[j].estimated_y_min, body_list[j].estimated_x_max, body_list[j].estimated_y_max) == True and now_time - body_list[j].last_time < datetime.timedelta(seconds=1):
+                            contact_body_list.append(j)
+                            contact_body_last = j
+                    for j in range(len(body_list)):
+                        if temporary_body_list[i][0] != -1:
+                            cos_sim = GetPersonCosineSimilarity(temporary_body_list[i][0], body_list[j].obj_id)
+                            if len(contact_body_list) == 1 and contact_body_last == j or cos_sim > THRESHOLD_PERSON_REIDENTIFICATION[0][0]:
+                                contact_body_list.append(j)
+                                if cos_sim > THRESHOLD_PERSON_REIDENTIFICATION[0][1]:
+                                    body_list[j].Update(temporary_body_list[i][0], temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], now_time, face_list)
+                                else: 
+                                    body_list[j].Update(body_list[j].obj_id, temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], now_time, face_list)
+                                #print( CheckContactRectangle(temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], body_list[j].estimated_x_min, body_list[j].estimated_y_min, body_list[j].estimated_x_max, body_list[j].estimated_y_max))
+                                cv2.rectangle(frame, (int(body_list[j].estimated_x_min), int(body_list[j].estimated_y_min)), (int(body_list[j].estimated_x_max), int(body_list[j].estimated_y_max)), (127, 127, 255), 2)
+                                temporary_body_list[i][0] = -1
+                                cv2.putText(frame, text='[id] body', org=(body_list[j].x_min[0], body_list[j].y_min[0] - 45), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 0, 255), thickness=2, lineType=cv2.LINE_AA)
+                                cv2.putText(frame, text=' id = ' + str(j), org=(body_list[j].x_min[0], body_list[j].y_min[0] - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 0, 255), thickness=2, lineType=cv2.LINE_AA)
+                                cv2.putText(frame, text=' linked id = ' + str(GetIndexFromObjectGlobalID(body_list[j].linked_face_id,face_list)), org=(body_list[j].x_min[0], body_list[j].y_min[0] - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 0, 255), thickness=2, lineType=cv2.LINE_AA)
+                               
+                                break 
+
+        # Create new body instance
+        if len(temporary_body_list) != 0:
+            for i in range(len(temporary_body_list)):
+                if temporary_body_list[i][0] != -1:
+                    body_list.append(Body(temporary_body_list[i][0], temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], now_time))
+                    print ('create body object')       
+
         # Get face detection data
+        temporary_face_list = []
         result_of_face_detection = GetDetectionData(frame, exec_net_FD, input_name_FD, input_shape_FD)
         for face_object in result_of_face_detection[out_name_FD][0][0]:
             if face_object[2] > THRESHOLD_FACE_DETECTION:
                 face_pos = GetXYMinMaxFromDetection(face_object,frame)
                 x_min, y_min, x_max, y_max = face_pos
-                #print("get face!")
 
                 # Get face image
-                face=frame[y_min:y_max,x_min:x_max]
+                face = frame[y_min:y_max,x_min:x_max]
 
                 # Get age and gender from face image
                 result_of_age_gender_detection = GetAgeGenderData(face, exec_net_AGD, input_name_AGD, input_shape_AGD)
@@ -432,59 +395,129 @@ def Main():
                 # Get face landmark from face image
                 result_of_face_landmaek_detection = GetFaceLandmarkDetectionData(face, exec_net_LD5, input_name_LD5, input_shape_LD5, out_name_LD5, face_pos)
 
-                # Get additional face landmark from face image
-                #result_of_face_landmaek_detection = np.vstack([result_of_face_landmaek_detection, GetFaceLandmarkDetectionData(face, exec_net_LD, input_name_LD, input_shape_LD, out_name_LD, face_pos)])
-
-                # Get distance from face landmark and gender (experimental)
+                # Get distance from face landmark and gender
                 result_of_distance_estimation, face_to_cam_angle = GetDistanceFromLandmark(result_of_face_landmaek_detection[0], result_of_face_landmaek_detection[1], result_of_head_pose_estimation, result_of_age_gender_detection, frame.shape[1], frame.shape[0], ANGLE_OF_VIEW)
 
                 # Get perspective data
                 perspective = GetPerspective(result_of_distance_estimation, face_to_cam_angle, [(result_of_head_pose_estimation[0] * np.pi / 180.0), (result_of_head_pose_estimation[1] * np.pi / 180.0)])
 
                 # Get face id and check
-                result_of_face_id = GetDetectionData(face, exec_net_FRR, input_name_FRR, input_shape_FRR)
+                result_of_face_id = GetDetectionData(face, exec_net_FR, input_name_FR, input_shape_FR)
 
                 # Update object
-                person_id_buf = CheckPersonClassList(result_of_face_id, person_list, 'face', THRESHOLD_PERSON_REIDENTIFICATION, x_min, y_min, x_max, y_max, now_time)
-                if person_id_buf == -1:
-                    buf = CheckTemporaryPersonClassList(result_of_face_id, temporary_face_list, 'face', THRESHOLD_PERSON_REIDENTIFICATION, x_min, y_min, x_max, y_max, now_time)
-                    CheckParentObjectAndMerge(person_list,temporary_person_list,temporary_face_list, buf )
-                    cv2.putText(frame, text='[id] face', org=(x_min, y_min - 65), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                    cv2.putText(frame, text=' id = ' + str(buf), org=(x_min, y_min - 45), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                else:
-                    cv2.putText(frame, text='[id] person', org=(x_min, y_min - 65), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 127), thickness=2, lineType=cv2.LINE_AA)
-                    cv2.putText(frame, text=' id = ' + str(person_id_buf), org=(x_min, y_min - 45), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 127), thickness=2, lineType=cv2.LINE_AA)
-                
+                temporary_face_list.append([result_of_face_id, x_min, y_min, x_max, y_max, result_of_age_gender_detection[0], result_of_age_gender_detection[1], perspective])
 
                 # Show data in frame
                 # Face Detection
                 cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-                # Age Gender Detection
-                cv2.putText(frame, text='[gender, age]', org=(x_min, y_min - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                age_gender = ' '+result_of_age_gender_detection[1] + ', ' + str(result_of_age_gender_detection[0])
-                cv2.putText(frame, text=age_gender, org=(x_min, y_min - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                # Face Landmerk Detection
-                for i in range(len(result_of_face_landmaek_detection)):
-                    cv2.circle(frame, center=(int(result_of_face_landmaek_detection[i][0]), int(result_of_face_landmaek_detection[i][1])), radius=1, color=(0, 255, 0), thickness=1)
-                    cv2.putText(frame, text=str(i), org=(int(result_of_face_landmaek_detection[i][0] + 1), int(result_of_face_landmaek_detection[i][1])), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.0, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                # Distance Estimation
-                cv2.putText(frame, text='[distance]', org=(x_min, y_max + 20), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                cv2.putText(frame, text=' {:.3f}(cm)'.format(result_of_distance_estimation / 10), org=(x_min, y_max + 40), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                # Head Pose Estimation
-                cv2.putText(frame, text='[head pose]', org=(x_min, y_max + 60), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                cv2.putText(frame, text=' yaw   = {:.3f}(degrees)'.format(result_of_head_pose_estimation[0]), org=(x_min, y_max + 80), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                cv2.putText(frame, text=' pitch = {:.3f}(degrees)'.format(result_of_head_pose_estimation[1]), org=(x_min, y_max + 100), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                cv2.putText(frame, text=' roll  = {:.3f}(degrees)'.format(result_of_head_pose_estimation[2]), org=(x_min, y_max + 120), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                DrawHeadPose(frame, result_of_head_pose_estimation, int((x_max + x_min) / 2), int((y_max + y_min) / 2), color=(0,255,0), scale=2)
-                # Perspective
-                cv2.putText(frame, text='[perspective]', org=(x_min, y_max + 140), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                cv2.putText(frame, text=' dx = {:.3f}(cm)'.format(perspective[0] / 10), org=(x_min, y_max + 160), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                cv2.putText(frame, text=' dy = {:.3f}(cm)'.format(-perspective[1] / 10), org=(x_min, y_max + 180), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                cv2.putText(frame, text=' dr = {:.3f}(cm)'.format(perspective[2] / 10), org=(x_min, y_max + 200), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                
+                if True:
+                    # Age Gender Detection
+                    cv2.putText(frame, text='[gender, age]', org=(x_min, y_min - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                    age_gender = ' '+result_of_age_gender_detection[1] + ', ' + str(result_of_age_gender_detection[0])
+                    cv2.putText(frame, text=age_gender, org=(x_min, y_min - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                    # Face Landmerk Detection
+                    for i in range(len(result_of_face_landmaek_detection)):
+                        cv2.circle(frame, center=(int(result_of_face_landmaek_detection[i][0]), int(result_of_face_landmaek_detection[i][1])), radius=1, color=(0, 255, 0), thickness=1)
+                        cv2.putText(frame, text=str(i), org=(int(result_of_face_landmaek_detection[i][0] + 1), int(result_of_face_landmaek_detection[i][1])), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.0, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                    # Distance Estimation
+                    cv2.putText(frame, text='[distance]', org=(x_min, y_max + 20), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                    cv2.putText(frame, text=' {:.3f}(cm)'.format(result_of_distance_estimation / 10), org=(x_min, y_max + 40), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                    # Head Pose Estimation
+                    cv2.putText(frame, text='[head pose]', org=(x_min, y_max + 60), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                    cv2.putText(frame, text=' yaw   = {:.3f}(degrees)'.format(result_of_head_pose_estimation[0]), org=(x_min, y_max + 80), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                    cv2.putText(frame, text=' pitch = {:.3f}(degrees)'.format(result_of_head_pose_estimation[1]), org=(x_min, y_max + 100), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                    cv2.putText(frame, text=' roll  = {:.3f}(degrees)'.format(result_of_head_pose_estimation[2]), org=(x_min, y_max + 120), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                    DrawHeadPose(frame, result_of_head_pose_estimation, int((x_max + x_min) / 2), int((y_max + y_min) / 2), color=(0,255,0), scale=2)
+                    # Perspective
+                    cv2.putText(frame, text='[perspective]', org=(x_min, y_max + 140), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                    cv2.putText(frame, text=' dx = {:.3f}(cm)'.format(perspective[0] / 10), org=(x_min, y_max + 160), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                    cv2.putText(frame, text=' dy = {:.3f}(cm)'.format(-perspective[1] / 10), org=(x_min, y_max + 180), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                    cv2.putText(frame, text=' dr = {:.3f}(cm)'.format(perspective[2] / 10), org=(x_min, y_max + 200), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+        
+        # Link face and body
+        if len(face_list) != 0:
+            for i in range(len(face_list)):
+                buf = CheckParentObject(body_list, face_list[i].x_min[0], face_list[i].y_min[0], face_list[i].x_max[0], face_list[i].y_max[0], now_time)
+                if buf != -1:
+                    if body_list[buf].linked_face_id == -1:
+                        body_list[buf].linked_face_id = face_list[i].global_id
+                        face_list[i].linked_body_id = body_list[buf].global_id
 
-                            
+        # Check face instance
+        if len(temporary_face_list) != 0:
+            for i in range(len(temporary_face_list)):
+                # Chack update face instance
+                if len(face_list) != 0:
+                    check_body = CheckParentObject(body_list, float(temporary_face_list[i][1]), float(temporary_face_list[i][2]), float(temporary_face_list[i][3]), float(temporary_face_list[i][4]), now_time)
+                    if check_body != -1:
+                        if body_list[check_body].linked_face_id != -1:
+                            face_index = GetIndexFromObjectGlobalID(body_list[check_body].linked_face_id, face_list)
+                            if face_index != None:
+                                face_list[face_index].Update(temporary_face_list[i][0], temporary_face_list[i][1], temporary_face_list[i][2], temporary_face_list[i][3], temporary_face_list[i][4], now_time, temporary_face_list[i][5], temporary_face_list[i][6], temporary_face_list[i][7], body_list)
+                                cv2.rectangle(frame, (int(face_list[face_index].estimated_x_min), int(face_list[face_index].estimated_y_min)), (int(face_list[face_index].estimated_x_max), int(face_list[face_index].estimated_y_max)), (127, 255, 127), 2)
+                                temporary_face_list[i][0] = -1
+                                cv2.putText(frame, text='[id] face', org=(face_list[face_index].x_min[0], face_list[face_index].y_min[0] - 65), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                                cv2.putText(frame, text=' id = ' + str(face_index), org=(face_list[face_index].x_min[0], face_list[face_index].y_min[0] - 45), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)           
+                    else:
+                        contact_face_list = []
+                        contact_face_last = -1
+                        for j in range(len(face_list)):
+                            if CheckContactRectangle(float(temporary_face_list[i][1]), float(temporary_face_list[i][2]), float(temporary_face_list[i][3]), float(temporary_face_list[i][4]), face_list[j].estimated_x_min, face_list[j].estimated_y_min, face_list[j].estimated_x_max, face_list[j].estimated_y_max) == True and now_time - face_list[j].last_time < datetime.timedelta(seconds=1):
+                                contact_face_list.append(j)
+                                contact_face_last = j
+                        for j in range(len(face_list)):
+                            if temporary_face_list[i][0] != -1:
+                                cos_sim = GetFaceCosineSimilarity(temporary_face_list[i][0], face_list[j].obj_id)
+                                if len(contact_face_list) == 1 and contact_face_last == j or cos_sim > THRESHOLD_PERSON_REIDENTIFICATION[1][0]:
+                                    contact_face_list.append(j)
+                                    if cos_sim > THRESHOLD_PERSON_REIDENTIFICATION[1][1]:
+                                        face_list[j].Update(temporary_face_list[i][0], temporary_face_list[i][1], temporary_face_list[i][2], temporary_face_list[i][3], temporary_face_list[i][4], now_time, temporary_face_list[i][5], temporary_face_list[i][6], temporary_face_list[i][7], body_list)
+                                    else: 
+                                        face_list[j].Update(face_list[j].obj_id, temporary_face_list[i][1], temporary_face_list[i][2], temporary_face_list[i][3], temporary_face_list[i][4], now_time, temporary_face_list[i][5], temporary_face_list[i][6], temporary_face_list[i][7], body_list)
+                                    #print( CheckContactRectangle(temporary_face_list[i][1], temporary_face_list[i][2], temporary_face_list[i][3], temporary_face_list[i][4], face_list[j].estimated_x_min, face_list[j].estimated_y_min, face_list[j].estimated_x_max, face_list[j].estimated_y_max))
+                                    cv2.rectangle(frame, (int(face_list[j].estimated_x_min), int(face_list[j].estimated_y_min)), (int(face_list[j].estimated_x_max), int(face_list[j].estimated_y_max)), (127, 255, 127), 2)
+                                    temporary_face_list[i][0] = -1
+                                    cv2.putText(frame, text='[id] face', org=(face_list[j].x_min[0], face_list[j].y_min[0] - 65), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                                    cv2.putText(frame, text=' id = ' + str(j), org=(face_list[j].x_min[0], face_list[j].y_min[0] - 45), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                                    break 
+        
+        # Create new face instance
+        if len(temporary_face_list) != 0:
+            for i in range(len(temporary_face_list)):
+                if temporary_face_list[i][0] != -1:
+                    face_list.append(Face(temporary_face_list[i][0], temporary_face_list[i][1], temporary_face_list[i][2], temporary_face_list[i][3], temporary_face_list[i][4], now_time, temporary_face_list[i][5], temporary_face_list[i][6], temporary_face_list[i][7]))
+                    print ('create face object')        
 
+        # Delete error instance
+        if len(body_list) != 0:
+            di = 0
+            for i in range(len(body_list)):
+                if body_list[i - di].number_of_frame < 5 and now_time - body_list[i - di].last_time > datetime.timedelta(seconds=2):
+                    del body_list[i - di]
+                    di += 1  
+
+        if len(face_list) != 0:
+            di = 0
+            for i in range(len(face_list)):
+                if face_list[i - di].number_of_frame < 5 and now_time - face_list[i - di].last_time > datetime.timedelta(seconds=2):
+                    del face_list[i - di]
+                    di += 1      
+       
+        # Delete lost instance
+        if len(body_list) != 0:
+            di = 0
+            for i in range(len(body_list)):
+                if body_list[i - di].number_of_frame > 5 and now_time - body_list[i - di].last_time > datetime.timedelta(seconds=20):
+                    PushDatabase(body_list[i - di], face_list)
+                    del body_list[i - di]
+                    di += 1  
+
+        if len(face_list) != 0:
+            di = 0
+            for i in range(len(face_list)):
+                if face_list[i - di].number_of_frame > 5 and now_time - face_list[i - di].last_time > datetime.timedelta(seconds=20):
+                    del face_list[i - di]
+                    di += 1      
 
         # Show FPS
         frame_rate = DrawFPS(frame, fps_time, 10, 10)
