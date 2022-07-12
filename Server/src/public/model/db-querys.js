@@ -1,5 +1,6 @@
 // Write Qurey
 const mysql = require('mysql');
+const { response } = require('../../app');
 
 // DB Setting
 const database = () => {
@@ -7,6 +8,7 @@ const database = () => {
         host: 'us-cdbr-east-06.cleardb.net',
         user: 'bd4dceab87de57',
         password: '33f46b06',
+        port : 3306,
         database: 'heroku_10ab3b9d2993672'
     });
     return con
@@ -14,6 +16,31 @@ const database = () => {
 //Enter into MySQL
 //mysql -u [user] -p
 //[password]
+
+//MySQL reconnect
+const handleDisconnect = () => {
+    console.log('INFO.CONNECTION_DB: ');
+    
+    //connection
+    database().connect(function(err) {
+        if (err) {
+            console.log('ERROR.CONNECTION_DB: ', err);
+            setTimeout(handleDisconnect, 1000);
+        }
+    });
+    
+    //error('PROTOCOL_CONNECTION_LOST') reconnect
+    database().on('error', function(err) {
+        console.log('ERROR.DB: ', err);
+        if (err.code === 'PROTOCOL_CONNECTION_LOST') {
+            console.log('ERROR.CONNECTION_LOST: ', err);
+            handleDisconnect();
+        } else {
+            throw err;
+        }
+    });
+}
+
 
 //Create DB table in iot
 const createtable = () => {
@@ -42,6 +69,18 @@ const existtable = () => {
       })
 }
 
+const get_data = () => {
+  var sql = 'SELECT * FROM data;'
+  var result = database().query(sql, function(error, response){
+    if(error) throw error;
+    console.log(response);
+    return response;
+  })
+  return result;
+}
+
 exports.database = database;
 exports.createtable = createtable;
 exports.existtable = existtable;
+exports.get_data = get_data;
+exports.handleDisconnect = handleDisconnect;
