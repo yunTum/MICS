@@ -27,7 +27,7 @@ def main():
 	client.on_disconnect = on_disconnect	 		# 切断時のコールバックを登録
 	client.on_publish = on_publish					# メッセージ送信時のコールバック
 
-	client.connect("localhost", 1883, 60)			# 接続先はローカルのMQTTブローカー
+	client.connect("fast-fjord-64260.herokuapp.com")			# 接続先はローカルのMQTTブローカー
 
 	# 通信処理スタート
 	# subscriberはloop_forever()だが，publishはloop_start()で起動だけさせる

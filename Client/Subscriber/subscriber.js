@@ -2,10 +2,7 @@
 var mqtt = require('mqtt');
 
 // MQTT broker setting
-var client = mqtt.connect({
-	host: 'localhost',
-	port: 1883
-});
+var client = mqtt.connect('mqtt://fast-fjord-64260.herokuapp.com');
 
 // Connected to MQTT broker
 client.on('connect', function(){
