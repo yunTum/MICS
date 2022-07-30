@@ -1,7 +1,7 @@
 # mics_dev_1
 # 2022 kasys1422
 # The core app of MICS(Measuring Interest with a Camera System)
-VERSION = '0.0.7'
+VERSION = '0.0.8'
 
 # Import
 import math
@@ -17,6 +17,8 @@ import dearpygui.dearpygui as dpg
 import websocket
 import _thread as thread
 from time import sleep
+import gettext
+import locale
 
 # Constant
 #PLATFORM = 'Raspberry Pi (arm64)'
@@ -65,11 +67,9 @@ save_way_csv = 'Per software launch'
 auto_start = True
 show_additional_info = True
 
-
+is_running = True
 
 # Functions
-
-is_running = True
 
 # RestartFlag
 restart_flag = False
@@ -667,7 +667,15 @@ def Main():
     # Load settings
     settings = Settings(SETTING_FILE_PATH)
     settings.Load()
-    
+
+    # Translation
+    now_locale, _ = locale.getdefaultlocale()
+    _ = gettext.translation(domain='messages',
+                            localedir = 'locale',
+                            languages=[now_locale], 
+                            fallback=True).gettext
+
+    # Gloval var
     global restart_flag
     global counted_number
     global global_id
@@ -676,7 +684,7 @@ def Main():
 
     # Setup DearPyGUI
     dpg.create_context()
-    dpg.create_viewport(title='MICS Camera System version ' + VERSION, width=1136, height=640)
+    dpg.create_viewport(title=('MICS Camera System version ' + VERSION), width=1136, height=640)
     dpg.setup_dearpygui()
 
     # Setup window
@@ -690,62 +698,62 @@ def Main():
             dpg.add_font_range_hint(dpg.mvFontRangeHint_Japanese)
         dpg.bind_font(default_font)
 
-    with dpg.window(label='Dashboard', tag='dashboard',  no_collapse=False, no_close=True, horizontal_scrollbar=True):
-        dpg.add_text('Welcome to MICS Camera System version '+ VERSION)
+    with dpg.window(label=(_('Dashboard')), tag='dashboard',  no_collapse=False, no_close=True, horizontal_scrollbar=True):
+        dpg.add_text(_('Welcome to MICS Camera System version %s') % VERSION)
         
 
         # Debug option. Do not enable when release.
         #dpg.add_button(label="Save Window Layout", tag="save_layout", callback=SaveLayout)
 
-    with dpg.window(label='Advanced settings', tag='advanced_settings',  no_collapse=False, no_close=True, horizontal_scrollbar=True):
-        dpg.add_text('Changing these settings may cause the software to stop working properly.')
-        dpg.add_text('Please change the settings only if you understand them.')
+    with dpg.window(label=_('Advanced settings'), tag='advanced_settings',  no_collapse=False, no_close=True, horizontal_scrollbar=True):
+        dpg.add_text(_('Changing these settings may cause the software to stop working properly.'))
+        dpg.add_text(_('Please change the settings only if you understand them.'))
         dpg.add_separator()
-        dpg.add_text('[Advanced settings]')
-        dpg.add_text('Inference Processor')
+        dpg.add_text(_('[Advanced settings]'))
+        dpg.add_text(_('Inference Processor'))
         dpg.add_radio_button(tag='device_name', items=['CPU', 'GPU', 'MYRAID'], default_value=device_name)
-        dpg.add_text('Where to save data')
+        dpg.add_text(_('Where to save data'))
         dpg.add_radio_button(tag='save_mode', items=['CSV', 'SERVER'], default_value=save_mode)
-        dpg.add_text('Save method<Only CSV mode>')
+        dpg.add_text(_('Save method<Only CSV mode>'))
         dpg.add_combo(tag='save_way_csv', items=['Per software launch', 'Per date', 'Identical file'], default_value=save_way_csv)
-        dpg.add_text('Server address<Only SERVER mode>')
+        dpg.add_text(_('Server address<Only SERVER mode>'))
         dpg.add_input_text(tag='server_address', default_value=server_address)
         dpg.add_text('')
-        dpg.add_button(label="Save and restart", tag="save_and_restart2", callback=RestartCameraSystem)
+        dpg.add_button(label=_("Save and restart"), tag="save_and_restart2", callback=RestartCameraSystem)
         dpg.add_separator()
     
-    with dpg.window(label='General settings', tag='general_settings',  no_collapse=False, no_close=True, horizontal_scrollbar=True):
-        dpg.add_text('[Execution]')
-        dpg.add_checkbox(label="Enable interest measurement", tag="is_running", default_value=is_running)
+    with dpg.window(label=_('General settings'), tag='general_settings',  no_collapse=False, no_close=True, horizontal_scrollbar=True):
+        dpg.add_text(_('[Execution]'))
+        dpg.add_checkbox(label=_("Enable interest measurement"), tag="is_running", default_value=is_running)
         dpg.add_separator()
-        dpg.add_text('[General settings]')
-        dpg.add_checkbox(label="Auto start camera system when software launch", tag="auto_start", default_value=auto_start)
-        dpg.add_checkbox(label="Show additional information in the camera window", tag="show_additional_info", default_value=show_additional_info)
+        dpg.add_text(_('[General settings]'))
+        dpg.add_checkbox(label=_("Auto start camera system when software launch"), tag="auto_start", default_value=auto_start)
+        dpg.add_checkbox(label=_("Show additional information in the camera window"), tag="show_additional_info", default_value=show_additional_info)
         dpg.add_text('')
-        dpg.add_text('Camera id')        
+        dpg.add_text(_('Camera id'))        
         dpg.add_input_int(min_value=0, max_value=100, min_clamped=True, max_clamped=True,default_value=cam_id,tag="cam_id")
-        dpg.add_text('Camera vertical resolution')
+        dpg.add_text(_('Camera vertical resolution'))
         dpg.add_input_int(label="(px)",min_value=320,max_value=7680, min_clamped=True, max_clamped=True,default_value=cam_x,tag="cam_x")
-        dpg.add_text('Camera horizontal resolution')
+        dpg.add_text(_('Camera horizontal resolution'))
         dpg.add_input_int(label="(px)",min_value=320,max_value=4320, min_clamped=True, max_clamped=True,default_value=cam_y,tag="cam_y")
-        dpg.add_text('Camera frame rate')
+        dpg.add_text(_('Camera frame rate'))
         dpg.add_combo(label="(fps)",tag='cam_fps', items=[5, 10, 15, 20, 30, 60], default_value=cam_fps)
-        dpg.add_text('Camera angle of view')
+        dpg.add_text(_('Camera angle of view'))
         dpg.add_input_int(label="(degrees)",min_value=1,max_value=179, min_clamped=True, max_clamped=True,default_value=angle_of_view,tag="angle_of_view")
-        dpg.add_text('Width of region to detect interest')
+        dpg.add_text(_('Width of region to detect interest'))
         dpg.add_input_int(label="(cm)",min_value=0, min_clamped=True,default_value=size_of_interest_check_area,tag="size_of_interest_check_area")
-        dpg.add_text('Location of the center of the region of interest detection (relative to the camera)')
+        dpg.add_text(_('Location of the center of the region of interest detection (relative to the camera)'))
         dpg.add_input_int(label="(cm)",default_value=interest_check_area_offset,tag="interest_check_area_offset")
         dpg.add_text('')
-        dpg.add_button(label="Save and restart", tag="save_and_restart1", callback=RestartCameraSystem)
+        dpg.add_button(label=_("Save and restart"), tag="save_and_restart1", callback=RestartCameraSystem)
         dpg.add_separator()
     
-    with dpg.window(label='Camera', tag='video_window', no_collapse=False, no_close=True, no_scrollbar=True):
+    with dpg.window(label=_('Camera'), tag='video_window', no_collapse=False, no_close=True, no_scrollbar=True):
         dpg.add_image('video_frame')
 
-    with dpg.window(label='Software Information', tag='soft_info_window',  no_collapse=False, no_close=True, horizontal_scrollbar=True):
-        dpg.add_text('[Software version]\nMICS Camera System version ' + VERSION + ' for ' + PLATFORM)
-        dpg.add_text('[Third Party Licenses]')
+    with dpg.window(label=_('Software Information'), tag='soft_info_window',  no_collapse=False, no_close=True, horizontal_scrollbar=True):
+        dpg.add_text(_('[Software version]') + '\nMICS Camera System version ' + VERSION + ' for ' + PLATFORM)
+        dpg.add_text(_('[Third Party Licenses]'))
         try:
             f = open('./resources/third_party_licenses.txt', 'r', encoding='UTF-8')
             licenses_text = f.read()
@@ -756,7 +764,7 @@ def Main():
         except FileNotFoundError:
             print("[Error] Could not open licenses file")
 
-    with dpg.window(label='Console', tag='console_window',  no_collapse=False, no_close=True, horizontal_scrollbar=True):
+    with dpg.window(label=_('Console'), tag='console_window',  no_collapse=False, no_close=True, horizontal_scrollbar=True):
         dpg.add_text('[Info] Launch virtual console window', tag='console_text')
 
 
@@ -1050,10 +1058,11 @@ def Main():
             SaveLayout() 
 
     # Exit process
-    capture.release()
-    dpg.destroy_context()
     if save_mode == 'SERVER':
         client.Disonnect()
+    capture.release()
+    dpg.destroy_context()
+
 
 if __name__ == '__main__':
    	Main()
