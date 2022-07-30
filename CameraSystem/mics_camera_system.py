@@ -528,7 +528,7 @@ class WebSocketClient():
 
     # Send messge to server
     def Run(self, interested, age, gender, start_time, end_time):
-        self.Connect()
+        #self.Connect()
         send_msg = '{"interested":' + str(interested) + ',"age":' + str(age) + ',"gender":' + str(gender) + ',"start_time":"' + start_time + '","end_time":"' + end_time + '"}'
         # send data without id
         if self.isConnected == True:
