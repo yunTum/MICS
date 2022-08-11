@@ -4,7 +4,7 @@ const { response } = require('../../app');
 
 // DB Setting
 const database = () => {
-    const con = mysql.createConnection({
+    const con = mysql.createPool({
         host: 'us-cdbr-east-06.cleardb.net',
         user: 'bd4dceab87de57',
         password: '33f46b06',
@@ -16,30 +16,6 @@ const database = () => {
 //Enter into MySQL
 //mysql -u [user] -p
 //[password]
-
-//MySQL reconnect
-const handleDisconnect = () => {
-    console.log('INFO.CONNECTION_DB: ');
-    
-    //connection
-    database().connect(function(err) {
-        if (err) {
-            console.log('ERROR.CONNECTION_DB: ', err);
-            setTimeout(handleDisconnect, 1000);
-        }
-    });
-    
-    //error('PROTOCOL_CONNECTION_LOST') reconnect
-    database().on('error', function(err) {
-        console.log('ERROR.DB: ', err);
-        if (err.code === 'PROTOCOL_CONNECTION_LOST') {
-            console.log('ERROR.CONNECTION_LOST: ', err);
-            handleDisconnect();
-        } else {
-            throw err;
-        }
-    });
-}
 
 
 //Create DB table in iot
@@ -53,10 +29,14 @@ const createtable = () => {
         end_time datetime NOT NULL COMMENT '測定終了時間'\
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 
-      database().query(sql, function(error, response){
-        //if(error) throw error;
-        //console.log(response);
+      database().getConnection((error, connection) => {
+        var result = connection.query(sql, (error, response) => {
+          if(error) throw error;
+          return response;
       })
+      connection.release();
+      return result;
+    })
 }
 
 //not use
@@ -71,16 +51,56 @@ const existtable = () => {
 
 const get_data = () => {
   var sql = 'SELECT * FROM data;'
-  var result = database().query(sql, function(error, response){
+  database().getConnection((error, connection) => {
+
+    var result = connection.query(sql, (error, response) => {
+      if(error) throw error;
+      console.log(response);
+      return response;
+    })
+    connection.release();
+    return result;
+  })
+}
+
+const get_reqdata = (start_time, end_time) => {
+  var sql = 'SELECT * FROM data WHERE end_time BETWEEN ' + start_time + ' AND ' + end_time + ';'
+  database().getConnection((error, connection) => {
+  var result = connection.query(sql, (error, response) => {
     if(error) throw error;
     console.log(response);
     return response;
   })
-  return result;
+  connection.release();
+  return result
+})
 }
 
+//Register Data to MySQL
+const insert_data = (payload) => {
+  var sql = 'INSERT INTO data VALUES (?, ?, ?, ?, ?, ?);'
+  var palams = [
+    null,
+    payload.interested, 
+    payload.age, 
+    payload.gender, 
+    payload.start_time, 
+    payload.end_time
+  ]
+  //Throw query and Save data
+  database().getConnection((error, connection) => {
+    var result = connection.query(sql, palams, (error, response) => {
+    if(error) throw error;
+    return response
+  })
+  connection.release();
+  return result;
+})
+}
+
+exports.insert_data = insert_data;
 exports.database = database;
 exports.createtable = createtable;
 exports.existtable = existtable;
 exports.get_data = get_data;
-exports.handleDisconnect = handleDisconnect;
+exports.get_reqdata = get_reqdata;
