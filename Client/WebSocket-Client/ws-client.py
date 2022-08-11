@@ -6,6 +6,7 @@ from time import sleep
 import random	
 import datetime
 import _thread as thread
+import json
 
 #クライアントクラスの定義
 class ws_client():
@@ -40,18 +41,17 @@ class ws_client():
     def run(self, *args):
         while True:
             #############
-            dt_now = datetime.datetime.now()
-            td = datetime.timedelta(seconds=random.randrange(59), minutes=random.randrange(59))
-            dt_now_td = dt_now + td
-
-            send_msg = '{"interested":%d,"age":%d,"gender":%d,"start_time":"%s","end_time":"%s"}' % \
-                (random.randrange(100), random.randrange(65),random.randrange(2),dt_now, dt_now_td)
+            get_day = datetime.datetime(2022, 8, random.randrange(1,31), hour=random.randrange(8, 21), minute=random.randrange(59), second=random.randrange(59))
+            td = datetime.timedelta(seconds=random.randrange(59), minutes=random.randrange(30))
+            get_day_td = get_day + td
+            send_msg = {"interested": random.randrange(100),"age": random.randrange(65),"gender": random.randrange(2),"start_time": str(get_day),"end_time": str(get_day_td)}
+            send_msg = json.dumps(send_msg)
             #idは自動インクリメントなので、idは送らなくてよい
             ###############
             self.ws.send(send_msg)
             print(send_msg)					# メッセージを表示
 
-            sleep(5)	 					# 5秒待つ
+            sleep(3)	 					# 5秒待つ
     
     #テスト通信用
     def test_run(self):
