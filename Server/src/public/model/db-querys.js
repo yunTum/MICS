@@ -26,7 +26,8 @@ const createtable = () => {
         age INTEGER NOT NULL COMMENT '年齢',\
         gender INTEGER NOT NULL COMMENT '性別',\
         start_time datetime NOT NULL COMMENT '測定開始時間',\
-        end_time datetime NOT NULL COMMENT '測定終了時間'\
+        end_time datetime NOT NULL COMMENT '測定終了時間',\
+        end_time_unix INTEGER NOT NULL COMMENT '測定終了UNIX時間'\
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 
       database().getConnection((error, connection) => {
@@ -78,14 +79,17 @@ const get_data = () => {
 
 //Register Data to MySQL
 const insert_data = (payload) => {
-  var sql = 'INSERT INTO data VALUES (?, ?, ?, ?, ?, ?);'
+  // Unix time
+  var end_time_unix = Date.parse(payload.end_time)/1000
+  var sql = 'INSERT INTO data VALUES (?, ?, ?, ?, ?, ?, ?);'
   var palams = [
     null,
     payload.interested, 
     payload.age, 
     payload.gender, 
     payload.start_time, 
-    payload.end_time
+    payload.end_time,
+    end_time_unix
   ]
   //Throw query and Save data
   database().getConnection((error, connection) => {
