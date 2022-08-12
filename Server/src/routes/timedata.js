@@ -15,9 +15,9 @@ router.get('/', cors(), function(req, res, next) {
     connection.query(sql, (error, response) => {
       if(error) throw error;
       console.log(response);
+      connection.destroy();
       res.json( JSON.stringify(response) );
     })
-    connection.release();
   })
     
 });

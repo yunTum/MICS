@@ -32,9 +32,9 @@ const createtable = () => {
       database().getConnection((error, connection) => {
         var result = connection.query(sql, (error, response) => {
           if(error) throw error;
+          connection.destroy();
           return response;
       })
-      connection.release();
       return result;
     })
 }
@@ -56,25 +56,25 @@ const get_data = () => {
     var result = connection.query(sql, (error, response) => {
       if(error) throw error;
       console.log(response);
+      connection.destroy();
       return response;
     })
-    connection.release();
     return result;
   })
 }
 
-const get_reqdata = (start_time, end_time) => {
-  var sql = 'SELECT * FROM data WHERE end_time BETWEEN ' + start_time + ' AND ' + end_time + ';'
-  database().getConnection((error, connection) => {
-  var result = connection.query(sql, (error, response) => {
-    if(error) throw error;
-    console.log(response);
-    return response;
-  })
-  connection.release();
-  return result
-})
-}
+// const get_reqdata = (start_time, end_time) => {
+//   var sql = 'SELECT * FROM data WHERE end_time BETWEEN ' + start_time + ' AND ' + end_time + ';'
+//   database().getConnection((error, connection) => {
+//   var result = connection.query(sql, (error, response) => {
+//     if(error) throw error;
+//     console.log(response);
+//     connection.release();
+//     return response;
+//   })
+//   return result
+// })
+// }
 
 //Register Data to MySQL
 const insert_data = (payload) => {
@@ -91,9 +91,9 @@ const insert_data = (payload) => {
   database().getConnection((error, connection) => {
     var result = connection.query(sql, palams, (error, response) => {
     if(error) throw error;
+    connection.destroy();
     return response
   })
-  connection.release();
   return result;
 })
 }
@@ -103,4 +103,4 @@ exports.database = database;
 exports.createtable = createtable;
 exports.existtable = existtable;
 exports.get_data = get_data;
-exports.get_reqdata = get_reqdata;
+// exports.get_reqdata = get_reqdata;
