@@ -1,0 +1,82 @@
+/*
+###############################################################################################
+# This json file allows you to change settings related to platform and operating environment. #
+# If you do not understand a setting item, do not change it.                                  #
+###############################################################################################
+
+[PLATFORM]
+ Environment in which the software runs.
+ Please select from next list and write into json. 
+ 
+"Windows (x64)"
+"Windows (x64, exe)"
+"Linux (x64)"
+"Raspberry Pi 3 (arm, NCS1)"
+"Raspberry Pi 3 (arm, NCS2)"
+"Raspberry Pi 4 (arm, NCS1)"
+"Raspberry Pi 4 (arm, NCS2)"
+
+* Select "Windows (x64, exe)" if you want to use ".exe" files
+
+[GUI_MODE]
+ Settings for user interface.
+ Please select from the list above list and write into json. 
+ 
+"Full"
+"Lite"
+"Legacy"
+
+ <Description of each mode>
+┌─────┬────────────────────────────────┐
+│          │                         Description                            │
+│ GUI_MODE ├───────┬──────┬────────┬────────┤
+│          │Functionality │Performance │ Supplementary  │  GUI Framework │
+├─────┼───────┼──────┼────────┼────────┤
+│"Full"    │     Full     │    High    │  recommended   │    DearPyGui   │
+│"Lite"    │   Limited    │    High    │for raspberry pi│Tkinter + OpenCV│
+│"Legacy"  │   Limited    │    Low     │not recommended │     Tkinter    │
+└─────┴───────┴──────┴────────┴────────┘
+ <Combination that works>
+┌────────────────┬───────────────────┐
+│                                │               GUI_MODE               │
+├─┬──────────────┼──────┬──────┬─────┤
+│  │                            │   "Full"   │   "Lite"   │ "Legacy" │
+│P │                            ├──────┼──────┼─────┤
+│L │"Windows (x64)"             │    Work    │    Work    │   Work   │
+│A │"Windows (x64, exe)"        │    Work    │ Do not work│   Work   │
+│T │"Linux (x64)"               │    Work    │    Work    │   Work   │
+│F │"Raspberry Pi 3 (arm, NCS1)"│ Do not work│    Work    │   Work   │
+│O │"Raspberry Pi 3 (arm, NCS2)"│ Do not work│    Work    │   Work   │
+│R │"Raspberry Pi 4 (arm, NCS1)"│    Work    │    Work    │   Work   │
+│M │"Raspberry Pi 4 (arm, NCS2)"│    Work    │    Work    │   Work   │
+└─┴──────────────┴──────┴──────┴─────┘
+
+[DEBUG_OPTION]
+ The flag of debug option.
+ Prease write true or false into json.
+
+[PERSON_DETECTION_WITH_HOG_SVM]
+ Experimental feature. Enabled in Lite mode only. Not recommended.
+ Use HOG+SVM(Open CV) instead of OpenVINO for person detection.
+ High load and low precision, but load can be distributed if MYRIAD devices are used.
+ Prease write true or false into json.
+
+[ALLOW_LAUNCH_SYSTEM_WHEN_COULD_NOT_CONNECT_TO_SERVER]
+ Allow system startup without recording when unable to connect to server.
+ Prease write true or false into json.
+
+[CAM_ROTATE]
+ Rotate the camera image 180 degrees.
+ Prease write true or false into json.
+
+*/
+
+//json
+{
+  "PLATFORM":"Windows (x64)",
+  "GUI_MODE":"Full",
+  "DEBUG_OPTION":true,
+  "PERSON_DETECTION_WITH_HOG_SVM":false,
+  "ALLOW_LAUNCH_SYSTEM_WHEN_COULD_NOT_CONNECT_TO_SERVER":true,
+  "CAM_ROTATE":false
+}

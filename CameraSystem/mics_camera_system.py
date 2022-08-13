@@ -1,7 +1,7 @@
 # mics_camera_system
 # 2022 kasys1422
 # The core app of MICS(Measuring Interest with a Camera System)
-VERSION = '0.0.10'
+VERSION = '0.0.12'
 
 # Import
 import os
@@ -9,7 +9,7 @@ import time
 import datetime
 from time import sleep
 import csv
-import json
+import json, re
 import _thread as thread
 import gettext
 import locale
@@ -20,37 +20,48 @@ from openvino.inference_engine import IECore
 import websocket
 
 try:
-    with open('./resources/platform.txt', 'r', newline='') as f:
-        PLATFORM = f.readlines()[1].rstrip("\n")
+    with open('./resources/platform.jsonc', 'r', newline='', encoding="utf-8") as f:
+        text = re.sub(r'/\*[\s\S]*?\*/|//.*', '', f.read())
+        json_text = json.loads(text)
+        PLATFORM = json_text['PLATFORM']
+        GUI_MODE = json_text['GUI_MODE']
+        DEBUG_OPTION = json_text['DEBUG_OPTION']
+        HOG_SVM = json_text['PERSON_DETECTION_WITH_HOG_SVM']
+        ALLOW_WITHOUT_SERVER = json_text['ALLOW_LAUNCH_SYSTEM_WHEN_COULD_NOT_CONNECT_TO_SERVER']
+        CAM_ROTATE = json_text['CAM_ROTATE']
 except:
+    print('[Error] Could nor read platform settings. Please check "./resources/platform.jsonc".')
     PLATFORM = "Unknown platform"
+    GUI_MODE = "Legacy"
+    DEBUG_OPTION = False
+    HOG_SVM = False
+    ALLOW_WITHOUT_SERVER = False
+    CAM_ROTATE = False
 
-if PLATFORM == "" or PLATFORM == "\r":
-    PLATFORM = "Unknown platform"
-
+LINUX = 'Linux (x64)'
+WINDOWS = 'Windows (x64)'
+WINDOWS_EXE = 'Windows (x64, exe)'
 RASPBERRY_PI = 'Raspberry Pi 3 (arm, NCS1)'
-RASPBERRY_PI_WITHOUT_CAMERA_VIEW = 'Raspberry Pi 3 (arm, NCS1, Without camera view)'
 RASPBERRY_PI_NCS_2 = 'Raspberry Pi 3 (arm, NCS2)'
-RASPBERRY_PI_NCS_2_WITHOUT_CAMERA_VIEW = 'Raspberry Pi 3 (arm, NCS2, Without camera view)'
 RASPBERRY_PI_4 = 'Raspberry Pi 4 (arm, NCS1)'
-RASPBERRY_PI_4_WITHOUT_CAMERA_VIEW = 'Raspberry Pi 4 (arm, NCS, Without camera view1)'
 RASPBERRY_PI_4_NCS_2 =  'Raspberry Pi 4 (arm, NCS2)'
-RASPBERRY_PI_4_NCS_2_WITHOUT_CAMERA_VIEW =  'Raspberry Pi 4 (arm, NCS2, Without camera view)'
-LINUX = 'Linux (x86/x64)'
-LINUX_WITHOUT_CAMERA_VIEW = 'Linux (x86/x64, Without camera view)'
-WINDOWS = 'Windows (x86/x64)'
-WINDOWS_WITHOUT_CAMERA_VIEW = 'Windows (x86/x64, Without camera view)'
 
-if PLATFORM == WINDOWS or PLATFORM == LINUX or PLATFORM == RASPBERRY_PI_4 or PLATFORM == RASPBERRY_PI_4_NCS_2:
+GUI_FULL = 'Full'
+GUI_LITE = 'Lite'
+GUI_LEGACY = 'Legacy'
+
+if GUI_MODE == GUI_FULL:
     import dearpygui.dearpygui as dpg
 else:
     import tkinter as tk
     import PIL.ImageTk
     import multiprocessing as mp
+    
 
 # Constant
 SYSTEM_START_TIME = datetime.datetime.now()
 THRESHOLD_PERSON_DETECTION = 0.75
+THRESHOLD_PERSON_DETECTION_ASL = 0.30
 THRESHOLD_FACE_DETECTION = 0.95
 DISTANCE_MAGNIFICATION = 1.0                    #1.16
 THRESHOLD_PERSON_REIDENTIFICATION = 0.60        #Threshold of Cosine Similarity
@@ -74,14 +85,14 @@ COLORS_16 = ((173,255, 47),
              (128,  0,  0))
 
 def LoadModelList(PLATFORM):
-    if PLATFORM == RASPBERRY_PI_NCS_2 or PLATFORM == RASPBERRY_PI_4_NCS_2 or PLATFORM == RASPBERRY_PI_NCS_2 or PLATFORM == RASPBERRY_PI_4_NCS_2:
+    if PLATFORM == RASPBERRY_PI_NCS_2 or PLATFORM == RASPBERRY_PI_4_NCS_2:
         list_path  = "./resources/model_list/ncs2.list"
-    elif PLATFORM == RASPBERRY_PI or PLATFORM == RASPBERRY_PI_4 or PLATFORM == RASPBERRY_PI_WITHOUT_CAMERA_VIEW or PLATFORM == RASPBERRY_PI_4_WITHOUT_CAMERA_VIEW:
+    elif PLATFORM == RASPBERRY_PI or PLATFORM == RASPBERRY_PI_4:
         list_path  = "./resources/model_list/ncs.list"
     else:
         list_path  = "./resources/model_list/general.list"
     try:
-        with open(list_path, 'r', newline='') as f:
+        with open(list_path, 'r', newline='', encoding="utf-8") as f:
             PD  =  f.readline().rstrip("\n") 
             PR  =  f.readline().rstrip("\n")
             FD  =  f.readline().rstrip("\n")
@@ -105,8 +116,7 @@ device_name = 'MYRIAD'                         # Use MYRIAD
 device_name = 'CPU'                             # Use CPU
 save_mode = 'SERVER'
 #save_mode = 'CSV'
-server_address = "ws://fast-fjord-64260.herokuapp.com"
-server_address = 'ws://localhost:8000'         #"ws://fast-fjord-64260.herokuapp.com" 'ws://localhost:8000'
+server_address = 'ws://localhost:8000'         #'ws://localhost:8000'
 angle_of_view = 70                              # Angle must be within 180 degrees
 cam_id = 0
 cam_x = 1280
@@ -146,9 +156,10 @@ def SetupCamera(cam_id, width, height, fps):
     camera.set(cv2.CAP_PROP_FRAME_WIDTH, max(0,min(7680,int(width))))
     camera.set(cv2.CAP_PROP_FRAME_HEIGHT,max(0,min(4320,int(height))))
     camera.set(cv2.CAP_PROP_FPS, max(0,min(60,int(fps))))
-    camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'));
+    #camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'));
+    #camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('H', '2', '6', '4'));
     camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    PrintConsleWindow('Successfully set up camera')
+    PrintConsleWindow('[Info] Successfully set up camera')
     return camera
 
 def SetupCSV():
@@ -156,19 +167,19 @@ def SetupCSV():
         os.makedirs('csv')
     global save_way_csv
     if save_way_csv == 'Per date':
-        with open('./csv/MICS_' + SYSTEM_START_TIME.strftime('%Y%m%d') + '.csv', 'a', newline='') as f:
+        with open('./csv/MICS_' + SYSTEM_START_TIME.strftime('%Y%m%d') + '.csv', 'a', newline='', encoding="utf-8") as f:
             writer = csv.writer(f)
     elif save_way_csv == 'Identical file':
-        with open('./csv/MICS_DATA.csv', 'a', newline='') as f:
+        with open('./csv/MICS_DATA.csv', 'a', newline='', encoding="utf-8") as f:
             writer = csv.writer(f)
     else:
-        with open('./csv/MICS_' + SYSTEM_START_TIME.strftime('%Y%m%d%H%M%S') + '.csv', 'w', newline='') as f:
+        with open('./csv/MICS_' + SYSTEM_START_TIME.strftime('%Y%m%d%H%M%S') + '.csv', 'w', newline='', encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(['id', 'interested', 'age', 'gender', 'start_time', 'end_time'])
     PrintConsleWindow("[Info] Launch as CSV MODE")
 
 def SetupModel(ie_core, device_name, model_path_without_extension):
-    if PLATFORM == RASPBERRY_PI or PLATFORM == RASPBERRY_PI_4 or PLATFORM == RASPBERRY_PI_WITHOUT_CAMERA_VIEW or PLATFORM == RASPBERRY_PI_4_WITHOUT_CAMERA_VIEW:
+    if PLATFORM == RASPBERRY_PI or PLATFORM == RASPBERRY_PI_4:
         net  = ie_core.read_network(model= model_path_without_extension + '.xml', weights= model_path_without_extension + '.bin')
         input_name  = next(iter(net.inputs))
         input_shape = net.inputs[input_name].shape
@@ -181,21 +192,21 @@ def SetupModel(ie_core, device_name, model_path_without_extension):
         out_name    = next(iter(net.outputs))
         out_shape   = net.outputs[out_name].shape
 
-    if PLATFORM == RASPBERRY_PI or PLATFORM == RASPBERRY_PI_4 or PLATFORM == RASPBERRY_PI_WITHOUT_CAMERA_VIEW or PLATFORM == RASPBERRY_PI_4_WITHOUT_CAMERA_VIEW:
+    if PLATFORM == RASPBERRY_PI or PLATFORM == RASPBERRY_PI_4:
         exec_net    = ie_core.load_network(network=net, device_name='MYRIAD', num_requests=1)
     else:
         try:
             exec_net    = ie_core.load_network(network=net, device_name=device_name, num_requests=1)  
         except RuntimeError:
-            PrintConsleWindow('[ERROR] Can not setup device(' + device_name + '). Using CPU.')
+            PrintConsleWindow('[Error] Can not setup device(' + device_name + '). Using CPU.')
             try:
                 exec_net    = ie_core.load_network(network=net, device_name='CPU', num_requests=1)
             except RuntimeError:
-                PrintConsleWindow('[ERROR] Can not setup device(CPU). Using MYRIAD.')
+                PrintConsleWindow('[Error] Can not setup device(CPU). Using MYRIAD.')
                 try:
                     exec_net    = ie_core.load_network(network=net, device_name='MYRIAD', num_requests=1)
                 except RuntimeError:
-                    PrintConsleWindow('[ERROR] Can not setup device(MYRIAD). Using GPU.')
+                    PrintConsleWindow('[Error] Can not setup device(MYRIAD). Using GPU.')
                     try:
                         exec_net    = ie_core.load_network(network=net, device_name='GPU', num_requests=1)
                     except RuntimeError:
@@ -210,17 +221,54 @@ def GetDetectionData(frame, exec_net, input_name, input_shape):
     result = exec_net.infer(inputs={input_name: exec_frame})
     return result
 
-def GetXYMinMaxFromDetection(input_object, frame):
+def GetDetectionDataStartAsync(frame, exec_net, input_name, input_shape):
+    exec_frame = cv2.resize(frame, (input_shape[3], input_shape[2]))
+    exec_frame = exec_frame.transpose((2, 0, 1))
+    exec_frame = exec_frame.reshape(input_shape)
+    result = exec_net.start_async(request_id=0, inputs={input_name: exec_frame})
+    return result
+
+def GetDetectionDataGetAsync(exec_net, out_name):
+    if PLATFORM == RASPBERRY_PI or PLATFORM == RASPBERRY_PI_4:
+        result = exec_net.requests[0].outputs[out_name]
+        result = {out_name:result}
+        return result
+    else:
+        result = exec_net.requests[0].output_blobs[out_name].buffer
+        result = {out_name:result}
+        return result
+
+def GetXYMinMaxFromDetectionFromOutputObject(input_object, frame):
     x_min = abs(int(input_object[3] * frame.shape[1]))
     y_min = abs(int(input_object[4] * frame.shape[0]))
     x_max = abs(int(input_object[5] * frame.shape[1]))
     y_max = abs(int(input_object[6] * frame.shape[0]))
     return  [x_min, y_min, x_max, y_max]
 
+def GetXYMinMaxFromDetection(x_min, y_min, x_max, y_max, frame):
+    x_min = abs(int(x_min * frame.shape[1]))
+    y_min = abs(int(y_min * frame.shape[0]))
+    x_max = abs(int(x_max * frame.shape[1]))
+    y_max = abs(int(y_max * frame.shape[0]))
+    return  [x_min, y_min, x_max, y_max]
+
+
 def GetAgeGenderData(face_frame, exec_net, input_name, input_shape):
     detection = GetDetectionData(face_frame, exec_net, input_name, input_shape)
     age = int(np.squeeze(detection['age_conv3']) * 100)
     prob = np.squeeze(detection['prob'])
+    if prob[0] < prob[1]:
+        gender = 'male'
+    else:
+        gender = 'female'
+    result = [age, gender]
+    return result
+
+def GetAgeGenderDataGetAsync(exec_net, out_name):
+    age_detection = GetDetectionDataGetAsync(exec_net, out_name)
+    gender_detection = GetDetectionDataGetAsync(exec_net, 'prob')
+    age = int(np.squeeze(age_detection[out_name]) * 100)
+    prob = np.squeeze(gender_detection['prob'])
     if prob[0] < prob[1]:
         gender = 'male'
     else:
@@ -236,10 +284,25 @@ def GetFaceLandmarkDetectionData(face_frame, exec_net, input_name, input_shape, 
         result[i] = face_pos[i % 2] + result[i] * face_frame.shape[(i + 1) % 2]
     return result.reshape(int(len(result) / 2), 2)
 
+def GetFaceLandmarkDetectionDataGetAsync(face_frame, exec_net, out_name, face_pos):
+    landmaeks = GetDetectionDataGetAsync(exec_net, out_name)
+    result = landmaeks[out_name][0][:]
+
+    for i in range(len(result)):
+        result[i] = face_pos[i % 2] + result[i] * face_frame.shape[(i + 1) % 2]
+    return result.reshape(int(len(result) / 2), 2)
+
+
 def GetHeadPoseEstimationData(face_frame, exec_net, input_name, input_shape):
     head_pose_data = GetDetectionData(face_frame, exec_net, input_name, input_shape)
     # [yaw, pitch, roll]
     result = [head_pose_data['angle_y_fc'][0][0], head_pose_data['angle_p_fc'][0][0], head_pose_data['angle_r_fc'][0][0]]
+    return result
+
+def GetHeadPoseEstimationDataGetAsync(exec_net, out_name):
+    head_pose_data = GetDetectionDataGetAsync(exec_net, out_name)
+    # [yaw, pitch, roll]
+    result = [GetDetectionDataGetAsync(exec_net, 'angle_y_fc')['angle_y_fc'][0][0], GetDetectionDataGetAsync(exec_net, 'angle_p_fc')['angle_p_fc'][0][0], GetDetectionDataGetAsync(exec_net, 'angle_r_fc')['angle_r_fc'][0][0]]
     return result
 
 def DrawHeadPose(frame, head_pose_data, x:int, y:int, color, scale):
@@ -301,7 +364,7 @@ def GetCosineSimilarity(vec1, vec2):
 def GetPersonCosineSimilarity(vec1, vec2):
     if vec1 == -1 or vec2 == -1:
         return 0.0
-    if PLATFORM == RASPBERRY_PI or PLATFORM == RASPBERRY_PI_4 or PLATFORM == RASPBERRY_PI_WITHOUT_CAMERA_VIEW or PLATFORM == RASPBERRY_PI_4_WITHOUT_CAMERA_VIEW:
+    if PLATFORM == RASPBERRY_PI or PLATFORM == RASPBERRY_PI_4:
         vec1 = vec1['ip_reid'][:]
         vec2 = vec2['ip_reid'][:]
         return GetCosineSimilarity(vec1, vec2)
@@ -388,19 +451,19 @@ def PushDatabase(body_class_object, client):
         while True:
             try:
                 if save_way_csv == 'Identical file':
-                    with open('./csv/MICS_DATA.csv', 'a', newline='') as f:
+                    with open('./csv/MICS_DATA.csv', 'a', newline='', encoding="utf-8") as f:
                         writer = csv.writer(f)
                         writer.writerow([str(counted_number), str(interested * 100), str(int(age)), str(int(gender)), start_time.strftime('%Y%m%d%H%M%S'), end_time.strftime('%Y%m%d%H%M%S')])
                         PrintConsleWindow('[Info] Push person object No.' + str(counted_number) + ' to csv')   
                         break
                 elif save_way_csv == 'Per date':
-                    with open('./csv/MICS_' + SYSTEM_START_TIME.strftime('%Y%m%d') + '.csv', 'a', newline='') as f:
+                    with open('./csv/MICS_' + SYSTEM_START_TIME.strftime('%Y%m%d') + '.csv', 'a', newline='', encoding="utf-8") as f:
                         writer = csv.writer(f)
                         writer.writerow([str(counted_number), str(interested * 100), str(int(age)), str(int(gender)), start_time.strftime('%Y%m%d%H%M%S'), end_time.strftime('%Y%m%d%H%M%S')])
                         PrintConsleWindow('[Info] Push person object No.' + str(counted_number) + ' to csv')   
                         break
                 else:
-                    with open('./csv/MICS_' + SYSTEM_START_TIME.strftime('%Y%m%d%H%M%S') + '.csv', 'a', newline='') as f:
+                    with open('./csv/MICS_' + SYSTEM_START_TIME.strftime('%Y%m%d%H%M%S') + '.csv', 'a', newline='', encoding="utf-8") as f:
                         writer = csv.writer(f)
                         writer.writerow([str(counted_number), str(interested * 100), str(int(age)), str(int(gender)), start_time.strftime('%Y%m%d%H%M%S'), end_time.strftime('%Y%m%d%H%M%S')])
                         PrintConsleWindow('[Info] Push person object No.' + str(counted_number) + ' to csv')   
@@ -428,7 +491,7 @@ def ConvertImageOpenCVToDearPyGUI(image):
 
 def PrintConsleWindow(text):
     print(text)
-    if PLATFORM == WINDOWS or PLATFORM == LINUX or PLATFORM == RASPBERRY_PI_4 or PLATFORM == RASPBERRY_PI_4_NCS_2:
+    if GUI_MODE == GUI_FULL:
         now_text = dpg.get_value('console_text')
         if now_text.count('\n') > 200:
            now_text = now_text[now_text.find('\n', 0) + 1:]
@@ -566,10 +629,11 @@ class WebSocketClient():
                     break    
                 except:
                     self.isConnected = False
-                    PrintConsleWindow("[Error] Could not connect to server. Try to reconnect. Number of connection attempts = " + str(i + 1))
+                    PrintConsleWindow("[Error] Could not connect to server. Number of connection attempts = " + str(i + 1))
                     sleep(1)
-                if i == 5:
-                    PrintConsleWindow("[Error] Tried " + str(i) + " times but could not connect to the server. Start software without recording.")
+                if i == 4:
+                    if ALLOW_WITHOUT_SERVER == True:
+                        PrintConsleWindow("[Error] Tried " + str(i + 1) + " times but could not connect to the server. Start software without recording.")
 
     def Disonnect(self):
         if self.isConnected == True:
@@ -580,15 +644,36 @@ class WebSocketClient():
         if self.isConnected == True:
             time_delta = datetime.datetime.now() - self.last_time
             if time_delta > datetime.timedelta(seconds=self.ws.timeout - 10):
-                self.ws.ping()          # send ping
-                self.last_time = datetime.datetime.now()
-                PrintConsleWindow("[Info] Send ping to server")   
+                try:
+                    self.ws.ping()          # send ping
+                    self.last_time = datetime.datetime.now()
+                    PrintConsleWindow("[Info] Send ping to server")
+                except BrokenPipeError:
+                    PrintConsleWindow("[ERROR] Broken pipe error Can not end ping to server")
+                    PrintConsleWindow("[INFO] Try to reconnect")
+                    self.isConnected = True
+                    try:
+                        self.ws = websocket.WebSocket()
+                        self.ws.connect(self.host)
+                        self.ws.settimeout(60)
+                        self.isConnected = True
+                        PrintConsleWindow("[Info] Successfully connected to server")
+                    except:
+                        PrintConsleWindow("[Info] Disonnected and stop recording") 
+                        self.isConnected = False
+                except:
+                    PrintConsleWindow("[ERROR] Can not send ping to server")
+                    pass
 
     def PushDataList(self, interested, age, gender, start_time, end_time):
         self.data_list.append((interested, age, gender, start_time, end_time))
 
     def PushSequentially(self):
-        if len(self.data_list) != 0 and datetime.datetime.now() - self.last_time > datetime.timedelta(seconds=3):
+        if PLATFORM == RASPBERRY_PI:
+            sec = 10
+        else:
+            sec = 3
+        if len(self.data_list) != 0 and datetime.datetime.now() - self.last_time > datetime.timedelta(seconds=sec):
             data_buffer = self.data_list.pop(0)
             self.RunAsThread(data_buffer[0], data_buffer[1], data_buffer[2], data_buffer[3], data_buffer[4])     
             self.last_time = datetime.datetime.now()
@@ -631,7 +716,6 @@ class Settings():
         global interest_check_area_offset
         global save_way_csv
         global auto_start
-        global show_additional_info
         device_name                 = input_device_name
         save_mode                   = input_save_mode
         server_address              = input_server_address
@@ -665,7 +749,7 @@ class Settings():
         if not os.path.exists('resources'):
             os.makedirs('resources')
         try:
-            with open( self.path, 'r') as f:
+            with open( self.path, 'r', encoding="utf-8") as f:
                 load_value = json.load(f)
                 global device_name
                 global save_mode
@@ -726,7 +810,7 @@ class Settings():
                       'save_way_csv'                : save_way_csv               ,
                       'auto_start'                  : auto_start                 ,
                       'show_additional_info'        : show_additional_info       }
-        with open(self.path, 'w') as f:
+        with open(self.path, 'w', encoding="utf-8") as f:
             json.dump(save_value, f)
         pass
     
@@ -791,12 +875,6 @@ def Main():
             dpg.add_font_range_hint(dpg.mvFontRangeHint_Japanese)
         dpg.bind_font(default_font)
 
-    with dpg.window(label=(_('Dashboard')), tag='dashboard',  no_collapse=False, no_close=True, horizontal_scrollbar=True):
-        dpg.add_text(_('Welcome to MICS Camera System version %s') % VERSION)
-
-        # Debug option. Do not enable when release.
-        #dpg.add_button(label="Save Window Layout", tag="save_layout", callback=SaveLayout)
-
     with dpg.window(label=_('Advanced settings'), tag='advanced_settings',  no_collapse=False, no_close=True, horizontal_scrollbar=True):
         dpg.add_text(_('Changing these settings may cause the software to stop working properly.'))
         dpg.add_text(_('Please change the settings only if you understand them.'))
@@ -859,6 +937,12 @@ def Main():
     with dpg.window(label=_('Console'), tag='console_window',  no_collapse=False, no_close=True, horizontal_scrollbar=True):
         dpg.add_text('[Info] Launch virtual console window', tag='console_text')
 
+    with dpg.window(label=(_('Dashboard')), tag='dashboard',  no_collapse=False, no_close=True, horizontal_scrollbar=True):
+        dpg.add_text(_('Welcome to MICS Camera System version %s') % VERSION)
+
+        # Debug option. Do not enable when release.
+        #dpg.add_button(label="Save Window Layout", tag="save_layout", callback=SaveLayout)
+
     
     dpg.configure_app(docking=True, docking_space=True)
     dpg.show_viewport()
@@ -869,7 +953,7 @@ def Main():
     ie = IECore()
     
     # Setup person detection
-    input_name_PD, input_shape_PD, _, _, exec_net_PD = SetupModel(ie, device_name, PD)
+    input_name_PD, input_shape_PD, out_name_PD, _, exec_net_PD = SetupModel(ie, device_name, PD)
 
     # Setup person re-identification
     input_name_PR, input_shape_PR, _, _, exec_net_PR = SetupModel(ie, device_name, PR)
@@ -878,13 +962,13 @@ def Main():
     input_name_FD, input_shape_FD, out_name_FD, _, exec_net_FD = SetupModel(ie, device_name, FD)
 
     # Setup age gender detectuon
-    input_name_AGD, input_shape_AGD, _, _, exec_net_AGD = SetupModel(ie, device_name, AGD)
+    input_name_AGD, input_shape_AGD, out_name_AGD, _, exec_net_AGD = SetupModel(ie, device_name, AGD)
     
     # Setup face landmark(5) detection
     input_name_LD5, input_shape_LD5, out_name_LD5, _, exec_net_LD5 = SetupModel(ie, device_name, LD5)
 
     # Setup head pose estimation
-    input_name_HPE, input_shape_HPE, _, _, exec_net_HPE = SetupModel(ie, device_name, HPE)
+    input_name_HPE, input_shape_HPE, out_name_HPE, _, exec_net_HPE = SetupModel(ie, device_name, HPE)
 
     # Create body class list
     body_list = []
@@ -903,12 +987,17 @@ def Main():
     # Accsess to server (SERVER mode)
     if save_mode == 'SERVER':
         client = WebSocketClient(server_address)
+        if ALLOW_WITHOUT_SERVER == False and client.isConnected == False:
+            PrintConsleWindow("[Info] Exit this software.")
+            dpg.destroy_context()
+            return
 
     # Set runnning flag
     is_running = auto_start
         
     # Loop
     while dpg.is_dearpygui_running():
+
         # Restart
         if restart_flag == True:
             PrintConsleWindow('\n[Info] Reboot the system')
@@ -924,12 +1013,23 @@ def Main():
                 SetupCSV()
             if save_mode == 'SERVER':
                 client = WebSocketClient(server_address)
-            input_name_PD, input_shape_PD, _, _, exec_net_PD               = SetupModel(ie, device_name,PD)
-            input_name_PR, input_shape_PR, _, _, exec_net_PR               = SetupModel(ie, device_name,PR)
-            input_name_FD, input_shape_FD, out_name_FD, _, exec_net_FD     = SetupModel(ie, device_name, FD)
-            input_name_AGD, input_shape_AGD, _, _, exec_net_AGD            = SetupModel(ie, device_name, AGD)
+            # Setup person detection
+            input_name_PD, input_shape_PD, out_name_PD, _, exec_net_PD = SetupModel(ie, device_name, PD)
+            
+            # Setup person re-identification
+            input_name_PR, input_shape_PR, _, _, exec_net_PR = SetupModel(ie, device_name, PR)
+            
+            # Setup face detection
+            input_name_FD, input_shape_FD, out_name_FD, _, exec_net_FD = SetupModel(ie, device_name, FD)
+            
+            # Setup age gender detectuon
+            input_name_AGD, input_shape_AGD, out_name_AGD, _, exec_net_AGD = SetupModel(ie, device_name, AGD)
+            
+            # Setup face landmark(5) detection
             input_name_LD5, input_shape_LD5, out_name_LD5, _, exec_net_LD5 = SetupModel(ie, device_name, LD5)
-            input_name_HPE, input_shape_HPE, _, _, exec_net_HPE            = SetupModel(ie, device_name, HPE)
+            
+            # Setup head pose estimation
+            input_name_HPE, input_shape_HPE, out_name_HPE, _, exec_net_HPE = SetupModel(ie, device_name, HPE)            
             is_running = auto_start
             restart_flag = False
             counted_number = 0
@@ -938,9 +1038,12 @@ def Main():
             pass
 
         # Get a frame
+        global CAM_ROTATE
         ret, frame = capture.read()
         if ret == False:
-            break
+            return
+        if CAM_ROTATE == True:
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
 
         # Get now time
         now_time = datetime.datetime.now()
@@ -958,22 +1061,52 @@ def Main():
         if is_running == True:
             # Get person detction data
             temporary_body_list = []
-            result_of_person_detection = GetDetectionData(frame, exec_net_PD, input_name_PD, input_shape_PD)
-            for person_object in result_of_person_detection[out_name_FD][0][0]:
-                if person_object[2] > THRESHOLD_PERSON_DETECTION:
-                    px_min, py_min, px_max, py_max = GetXYMinMaxFromDetection(person_object,frame)
-                    #print("get person!")
+            ''' No Use Async
+            result_of_person_detection = GetDetectionData(frame, exec_net_PD, input_name_PD, input_shape_PD)   
+            result_of_face_detection = GetDetectionData(frame, exec_net_FD, input_name_FD, input_shape_FD)
+            ''' # Use Async
+            GetDetectionDataStartAsync(frame, exec_net_PD, input_name_PD, input_shape_PD)
+            GetDetectionDataStartAsync (frame, exec_net_FD, input_name_FD, input_shape_FD)
+            while True:
+                if exec_net_PD.requests[0].wait(-1) == 0 and exec_net_FD.requests[0].wait(-1) == 0:
+                    result_of_person_detection = GetDetectionDataGetAsync(exec_net_PD, out_name_PD)
+                    result_of_face_detection = GetDetectionDataGetAsync (exec_net_FD, out_name_FD)
+                    break
+            #'''
 
-                    person = frame[py_min:py_max,px_min:px_max]
+            if 'person-detection-asl-0001' in PD:
+                for person_object in result_of_person_detection[out_name_PD]:
+                    if person_object[4] > THRESHOLD_PERSON_DETECTION_ASL:
+                        px_min, py_min, px_max, py_max = GetXYMinMaxFromDetection(person_object[0] / 320, person_object[1] / 320, person_object[2] / 320, person_object[3] / 320, frame)
+                        #print("get person!")
 
-                    # Get person id and check
-                    result_of_person_id = GetDetectionData(person, exec_net_PR, input_name_PR, input_shape_PR)
+                        person = frame[py_min:py_max,px_min:px_max]
 
-                    # Update object
+                        # Get person id and check
+                        result_of_person_id = GetDetectionData(person, exec_net_PR, input_name_PR, input_shape_PR)
+
+                        # Update object
+                        temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
+
+                        # Show in window
+                        cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (255, 0, 255), 2)
+         
+            else:
+                for person_object in result_of_person_detection[out_name_PD][0][0]:
+                    if person_object[2] > THRESHOLD_PERSON_DETECTION:
+                        px_min, py_min, px_max, py_max = GetXYMinMaxFromDetectionFromOutputObject(person_object,frame)
+                        #print("get person!")
+
+                        person = frame[py_min:py_max,px_min:px_max]
+
+                        # Get person id and check
+                        result_of_person_id = GetDetectionData(person, exec_net_PR, input_name_PR, input_shape_PR)
+
+                        # Update object
                
-                    temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
-                    # Show in window
-                    cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (255, 0, 255), 2)
+                        temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
+                        # Show in window
+                        cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (255, 0, 255), 2)
 
             # Check body instance
             if len(body_list) != 0:
@@ -1030,10 +1163,9 @@ def Main():
 
             # Get face detection data
             temporary_face_list = []
-            result_of_face_detection = GetDetectionData(frame, exec_net_FD, input_name_FD, input_shape_FD)
             for face_object in result_of_face_detection[out_name_FD][0][0]:
                 if face_object[2] > THRESHOLD_FACE_DETECTION:
-                    face_pos = GetXYMinMaxFromDetection(face_object,frame)
+                    face_pos = GetXYMinMaxFromDetectionFromOutputObject(face_object,frame)
                     x_min, y_min, x_max, y_max = face_pos
                     # Error check
                     if ((x_max - x_min) * 1.8) - (y_max - y_min) < 0:
@@ -1041,7 +1173,7 @@ def Main():
                     else:
                         # Get face image
                         face = frame[y_min:y_max,x_min:x_max]
-
+                        ''' No Use Async
                         # Get age and gender from face image
                         result_of_age_gender_detection = GetAgeGenderData(face, exec_net_AGD, input_name_AGD, input_shape_AGD)
 
@@ -1050,6 +1182,27 @@ def Main():
                 
                         # Get face landmark from face image
                         result_of_face_landmaek_detection = GetFaceLandmarkDetectionData(face, exec_net_LD5, input_name_LD5, input_shape_LD5, out_name_LD5, face_pos)
+
+                        ''' # Use Async
+                        # Start excute async to get age and gender from face image
+                        GetDetectionDataStartAsync(face, exec_net_AGD, input_name_AGD, input_shape_AGD)
+
+                        # Start excute async to get head pose estimation
+                        GetDetectionDataStartAsync(face, exec_net_HPE, input_name_HPE,input_shape_HPE)
+                
+                        # Start excute async to get face landmark from face image
+                        GetDetectionDataStartAsync(face, exec_net_LD5, input_name_LD5, input_shape_LD5)
+
+                        while True:
+                            if exec_net_AGD.requests[0].wait(-1) == 0 and exec_net_HPE.requests[0].wait(-1) == 0 and exec_net_LD5.requests[0].wait(-1) == 0:
+                                # Get age and gender from face image
+                                result_of_age_gender_detection = GetAgeGenderDataGetAsync(exec_net_AGD, out_name_AGD)                               
+                                # Get head pose estimation
+                                result_of_head_pose_estimation = GetHeadPoseEstimationDataGetAsync(exec_net_HPE, out_name_HPE)
+                                # Get face landmark from face image
+                                result_of_face_landmaek_detection = GetFaceLandmarkDetectionDataGetAsync(face, exec_net_LD5, out_name_LD5, face_pos)
+                                break
+                        #'''
 
                         # Get distance from face landmark and gender
                         result_of_distance_estimation, face_to_cam_angle = GetDistanceFromLandmark(result_of_face_landmaek_detection[0], result_of_face_landmaek_detection[1], result_of_head_pose_estimation, result_of_age_gender_detection, frame.shape[1], frame.shape[0], angle_of_view)
@@ -1112,7 +1265,7 @@ def Main():
             if len(body_list) != 0:
                 di = 0
                 for i in range(len(body_list)):
-                    if body_list[i - di].last_time - body_list[i - di].first_time < datetime.timedelta(seconds=5) and now_time - body_list[i - di].last_time > datetime.timedelta(seconds=3):
+                    if body_list[i - di].last_time - body_list[i - di].first_time < datetime.timedelta(seconds=3) and now_time - body_list[i - di].last_time > datetime.timedelta(seconds=2):
                         del body_list[i - di]
                         di += 1    
        
@@ -1120,7 +1273,7 @@ def Main():
             if len(body_list) != 0:
                 di = 0
                 for i in range(len(body_list)):
-                    if body_list[i - di].last_time - body_list[i - di].first_time >= datetime.timedelta(seconds=5) and now_time - body_list[i - di].last_time > datetime.timedelta(seconds=10):
+                    if body_list[i - di].last_time - body_list[i - di].first_time >= datetime.timedelta(seconds=3) and now_time - body_list[i - di].last_time > datetime.timedelta(seconds=10):
                         PushDatabase(body_list[i - di], client)
                         del body_list[i - di]
                         di += 1     
@@ -1156,7 +1309,7 @@ def Main():
     dpg.destroy_context()
 
 # Main (for RaspberryPi3 or any other legacy device)
-class MainGuiLegacyDevices():
+class MainLiteGui():
     def __init__(self, settings_q_exit, settings_q_width, settings_q_offset, size_of_interest_check_area, interest_check_area_offset):
         self.settings_q_exit = settings_q_exit
         self.settings_q_width = settings_q_width
@@ -1173,10 +1326,10 @@ class MainGuiLegacyDevices():
 
         # Setup tkinter
         window_width = 1280
-        window_height = 680
+        window_height = int(680 - 360 - 40)
         self.window = tk.Tk()
         self.window.title('MICS Camera System version ' + VERSION + ' for ' + PLATFORM)
-        self.window.geometry(str(window_width) + 'x' + str(window_height))
+        self.window.geometry(str(window_width) + 'x' + str(window_height) + '+' + str(0) + '+' + str(int(360 + 40)))
         
         sepalate_frame = tk.Frame(self.window)
         sepalate_frame.place(relx=0, rely=0, relwidth=1, relheight=1)
@@ -1276,7 +1429,7 @@ class MainGuiLegacyDevices():
 
 
 
-class MainLegacyDevicesWithoutCamera():
+class MainLite():
     def __init__(self):
         # Exit flag
         self.exit = False
@@ -1290,7 +1443,7 @@ class MainLegacyDevicesWithoutCamera():
         ie = IECore()
         
         # Setup person detection
-        self.input_name_PD, self.input_shape_PD, _, _, self.exec_net_PD = SetupModel(ie, device_name, PD)
+        self.input_name_PD, self.input_shape_PD, self.out_name_PD, _, self.exec_net_PD = SetupModel(ie, device_name, PD)
 
         # Setup person re-identification
         self.input_name_PR, self.input_shape_PR, self.out_name_PR, _, self.exec_net_PR = SetupModel(ie, device_name, PR)
@@ -1299,16 +1452,22 @@ class MainLegacyDevicesWithoutCamera():
         self.input_name_FD, self.input_shape_FD, self.out_name_FD, _, self.exec_net_FD = SetupModel(ie, device_name, FD)
 
         # Setup age gender detectuon
-        self.input_name_AGD, self.input_shape_AGD, _, _, self.exec_net_AGD = SetupModel(ie, device_name, AGD)
+        self.input_name_AGD, self.input_shape_AGD, self.out_name_AGD, _, self.exec_net_AGD = SetupModel(ie, device_name, AGD)
         
         # Setup face landmark(5) detection
         self.input_name_LD5, self.input_shape_LD5, self.out_name_LD5, _, self.exec_net_LD5 = SetupModel(ie, device_name, LD5)
 
         # Setup head pose estimation
-        self.input_name_HPE, self.input_shape_HPE, _, _, self.exec_net_HPE = SetupModel(ie, device_name, HPE)
+        self.input_name_HPE, self.input_shape_HPE, self.out_name_HPE, _, self.exec_net_HPE = SetupModel(ie, device_name, HPE)
 
         # Create body class list
         self.body_list = []
+
+        if HOG_SVM == True:
+            self.hog = cv2.HOGDescriptor()
+            self.hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+            self.hog_params = {'winStride': (8, 8), 'padding': (32, 32), 'scale': 1.2}
+            self.hog_scale = 2.0
 
         # Launch message
         PrintConsleWindow('[Info] Launch mics-dev version ' + VERSION)
@@ -1323,22 +1482,43 @@ class MainLegacyDevicesWithoutCamera():
         # Accsess to server (SERVER mode)
         if save_mode == 'SERVER':
             self.client = WebSocketClient(server_address)
+            if ALLOW_WITHOUT_SERVER == False and self.client.isConnected == False:
+                PrintConsleWindow("[Info] Exit this software.")
+                return None
 
         # Set runnning flag
         global is_running
         is_running = True
 
-        # Start loop
+        # Start GUI loop
+        global size_of_interest_check_area, interest_check_area_offset
         self.settings_q_exit = mp.Queue()
         self.settings_q_width = mp.Queue()
         self.settings_q_offset = mp.Queue()
-        global size_of_interest_check_area, interest_check_area_offset
-        p = mp.Process(target=MainGuiLegacyDevices, args=(self.settings_q_exit, self.settings_q_width, self.settings_q_offset, size_of_interest_check_area, interest_check_area_offset,))
+        p = mp.Process(target=MainLiteGui, args=(self.settings_q_exit, self.settings_q_width, self.settings_q_offset, size_of_interest_check_area, interest_check_area_offset,))
         p.start()
+
+        # Get a frame once
+        global CAM_ROTATE
+        ret, frame = self.capture.read()
+        if ret == False:
+            print('[ERROR] Can not open camera')
+        if CAM_ROTATE == True:
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
+        cv2.startWindowThread()
+        cv2.namedWindow('Camera')
+        cv2.imshow('Camera', frame)
+        #cv2.moveWindow('Camera', int(1280 / 2 - 640 / 2), 0)
+        cv2.moveWindow('Camera', 0, 0)
+        cv2.waitKey(1)
 
         # Loop
         while is_running == True:
-            self.MainProcess()
+            if self.MainProcess() == -1:
+                p.terminate()
+                p.join()
+                break
+
             # Exit process
             try: 
                 buffer_data_exit =  self.settings_q_exit.get_nowait()
@@ -1361,12 +1541,16 @@ class MainLegacyDevicesWithoutCamera():
                 print('[Info] Location of the center of the region of interest detection (with camera at origin and rightward facing positive):' + str(buffer_data_offset) + ']')
             except:
                 pass
-        
+
     def MainProcess(self):
         # Get a frame
+        global CAM_ROTATE
         ret, frame = self.capture.read()
         if ret == False:
-            return
+            print('[ERROR] Can not open camera')
+            return -1
+        if CAM_ROTATE == True:
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
 
         # Get now time
         now_time = datetime.datetime.now()
@@ -1381,19 +1565,75 @@ class MainLegacyDevicesWithoutCamera():
         if is_running == True:
             # Get person detction data
             temporary_body_list = []
-            result_of_person_detection = GetDetectionData(frame, self.exec_net_PD, self.input_name_PD, self.input_shape_PD)
-            for person_object in result_of_person_detection[self.out_name_FD][0][0]:
-                if person_object[2] > THRESHOLD_PERSON_DETECTION:
-                    px_min, py_min, px_max, py_max = GetXYMinMaxFromDetection(person_object,frame)
-                    #print("get person!")
 
-                    person = frame[py_min:py_max,px_min:px_max]
+            if HOG_SVM == True:
+                GetDetectionDataStartAsync (frame, self.exec_net_FD, self.input_name_FD, self.input_shape_FD)
+                result_of_person_detection, _ = self.hog.detectMultiScale(cv2.resize(frame, (int(cam_x / self.hog_scale), int(cam_y / self.hog_scale))), **self.hog_params)
+                while True:
+                    if self.exec_net_FD.requests[0].wait(-1) == 0:
+                        result_of_face_detection = GetDetectionDataGetAsync (self.exec_net_FD, self.out_name_FD)
+                        break
 
-                    # Get person id and check
-                    result_of_person_id = GetDetectionData(person, self.exec_net_PR, self.input_name_PR, self.input_shape_PR)
+                for (x, y, w, h) in result_of_person_detection:
+                        px_min, py_min, px_max, py_max = int(x * self.hog_scale) , int(y * self.hog_scale), int(x * self.hog_scale + w * self.hog_scale), int(y * self.hog_scale + h * self.hog_scale)
+                        person = frame[py_min:py_max,px_min:px_max]
 
-                    # Update object
-                    temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
+                        # Get person id and check
+                        result_of_person_id = GetDetectionData(person, self.exec_net_PR, self.input_name_PR, self.input_shape_PR)
+
+                        # Update object
+                        temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
+                        
+                        # Show in window
+                        cv2.rectangle(frame, (x, y),(x+w, y+h),(0,50,255), 3)
+
+
+            else:
+                ''' # No Use Async
+                result_of_person_detection = GetDetectionData(frame, self.exec_net_PD, self.input_name_PD, self.input_shape_PD)
+                result_of_face_detection = GetDetectionData(frame, self.exec_net_FD, self.input_name_FD, self.input_shape_FD)
+                ''' # Use Async
+                GetDetectionDataStartAsync(frame, self.exec_net_PD, self.input_name_PD, self.input_shape_PD)
+                GetDetectionDataStartAsync (frame, self.exec_net_FD, self.input_name_FD, self.input_shape_FD)
+                while True:
+                    if self.exec_net_PD.requests[0].wait(-1) == 0 and self.exec_net_FD.requests[0].wait(-1) == 0:
+                        result_of_person_detection = GetDetectionDataGetAsync(self.exec_net_PD, self.out_name_PD)
+                        result_of_face_detection = GetDetectionDataGetAsync (self.exec_net_FD, self.out_name_FD)
+                        break
+                    
+                if 'person-detection-asl-0001' in PD:
+                    for person_object in result_of_person_detection[self.out_name_PD]:
+                        if person_object[4] > THRESHOLD_PERSON_DETECTION_ASL:
+                            px_min, py_min, px_max, py_max = GetXYMinMaxFromDetection(person_object[0] / 320, person_object[1] / 320, person_object[2] / 320, person_object[3] / 320, frame)
+                            #print("get person!")
+
+                            person = frame[py_min:py_max,px_min:px_max]
+
+                            # Get person id and check
+                            result_of_person_id = GetDetectionData(person, self.exec_net_PR, self.input_name_PR, self.input_shape_PR)
+
+                            # Update object
+                            temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
+
+                            # Show in window
+                            cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (255, 0, 255), 2)
+
+                else:
+                    for person_object in result_of_person_detection[self.out_name_PD][0][0]:
+                        if person_object[2] > THRESHOLD_PERSON_DETECTION:
+                            px_min, py_min, px_max, py_max = GetXYMinMaxFromDetectionFromOutputObject(person_object,frame)
+                            #print("get person!")
+
+                            person = frame[py_min:py_max,px_min:px_max]
+
+                            # Get person id and check
+                            result_of_person_id = GetDetectionData(person, self.exec_net_PR, self.input_name_PR, self.input_shape_PR)
+
+                            # Update object
+                            temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
+
+                            # Show in window
+                            cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (255, 0, 255), 2)
 
             # Check body instance
             if len(self.body_list) != 0:
@@ -1430,6 +1670,13 @@ class MainLegacyDevicesWithoutCamera():
                             else:
                                 self.body_list[j].Update(temporary_body_list[row_index[1]][0], temporary_body_list[row_index[1]][1], temporary_body_list[row_index[1]][2], temporary_body_list[row_index[1]][3], temporary_body_list[row_index[1]][4], now_time)
                                 temporary_body_list[row_index[1]][0] = -1
+
+                            # Info
+                            color = COLORS_16[(self.body_list[j].global_id + 1) % 16]
+                            #cv2.rectangle(frame, (int(body_list[j].estimated_x_min), int(body_list[j].estimated_y_min)), (int(body_list[j].estimated_x_max), int(body_list[j].estimated_y_max)), color, 2)                        
+                            cv2.rectangle(frame, (int(self.body_list[j].x_min[0]), int(self.body_list[j].y_min[0])), (int(self.body_list[j].x_max[0]), int(self.body_list[j].y_max[0])), color, 2)                        
+                            cv2.putText(frame, text='id = ' + str(self.body_list[j].global_id), org=(self.body_list[j].x_min[0], self.body_list[j].y_min[0] - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)                              
+
                         
 
             # Create new body instance
@@ -1445,49 +1692,110 @@ class MainLegacyDevicesWithoutCamera():
 
             # Get face detection data
             temporary_face_list = []
-            if len(temporary_body_list) != 0:
-                result_of_face_detection = GetDetectionData(frame, self.exec_net_FD, self.input_name_FD, self.input_shape_FD)
-                for face_object in result_of_face_detection[self.out_name_FD][0][0]:
-                    if face_object[2] > THRESHOLD_FACE_DETECTION:
-                        face_pos = GetXYMinMaxFromDetection(face_object,frame)
-                        x_min, y_min, x_max, y_max = face_pos
-                        # Error check
-                        if ((x_max - x_min) * 1.8) - (y_max - y_min) < 0:
-                            pass
-                        else:
-                            # Get face image
-                            face = frame[y_min:y_max,x_min:x_max]
+            
+            for face_object in result_of_face_detection[self.out_name_FD][0][0]:
+                if face_object[2] > THRESHOLD_FACE_DETECTION:
+                    face_pos = GetXYMinMaxFromDetectionFromOutputObject(face_object,frame)
+                    x_min, y_min, x_max, y_max = face_pos
+                    # Error check
+                    if ((x_max - x_min) * 1.8) - (y_max - y_min) < 0:
+                        pass
+                    else:
+                        # Get face image
+                        face = frame[y_min:y_max,x_min:x_max]
 
-                            # Get age and gender from face image
-                            result_of_age_gender_detection = GetAgeGenderData(face, self.exec_net_AGD, self.input_name_AGD, self.input_shape_AGD)
+                        '''
+                        # Get age and gender from face image
+                        result_of_age_gender_detection = GetAgeGenderData(face, self.exec_net_AGD, self.input_name_AGD, self.input_shape_AGD)
 
-                            # Get head pose estimation
-                            result_of_head_pose_estimation = GetHeadPoseEstimationData(face, self.exec_net_HPE, self.input_name_HPE, self.input_shape_HPE)
-                
-                            # Get face landmark from face image
-                            result_of_face_landmaek_detection = GetFaceLandmarkDetectionData(face, self.exec_net_LD5, self.input_name_LD5, self.input_shape_LD5, self.out_name_LD5, face_pos)
+                        # Get head pose estimation
+                        result_of_head_pose_estimation = GetHeadPoseEstimationData(face, self.exec_net_HPE, self.input_name_HPE, self.input_shape_HPE)
+            
+                        # Get face landmark from face image
+                        result_of_face_landmaek_detection = GetFaceLandmarkDetectionData(face, self.exec_net_LD5, self.input_name_LD5, self.input_shape_LD5, self.out_name_LD5, face_pos)
 
-                            # Get distance from face landmark and gender
-                            result_of_distance_estimation, face_to_cam_angle = GetDistanceFromLandmark(result_of_face_landmaek_detection[0], result_of_face_landmaek_detection[1], result_of_head_pose_estimation, result_of_age_gender_detection, frame.shape[1], frame.shape[0], angle_of_view)
+                        ''' # Use Async
+                        # Start excute async to get age and gender from face image
+                        GetDetectionDataStartAsync(face, self.exec_net_AGD, self.input_name_AGD, self.input_shape_AGD)
+                        
+                        # Start excute async to get head pose estimation
+                        GetDetectionDataStartAsync(face, self.exec_net_HPE, self.input_name_HPE, self.input_shape_HPE)
+                        
+                        # Start excute async to get face landmark from face image
+                        GetDetectionDataStartAsync(face, self.exec_net_LD5, self.input_name_LD5, self.input_shape_LD5)
+                        
+                        while True:
+                            if self.exec_net_AGD.requests[0].wait(-1) == 0 and self.exec_net_HPE.requests[0].wait(-1) == 0 and self.exec_net_LD5.requests[0].wait(-1) == 0:
+                                # Get age and gender from face image
+                                result_of_age_gender_detection = GetAgeGenderDataGetAsync(self.exec_net_AGD, self.out_name_AGD)                               
+                                # Get head pose estimation
+                                result_of_head_pose_estimation = GetHeadPoseEstimationDataGetAsync(self.exec_net_HPE, self.out_name_HPE)
+                                # Get face landmark from face image
+                                result_of_face_landmaek_detection = GetFaceLandmarkDetectionDataGetAsync(face, self.exec_net_LD5, self.out_name_LD5, face_pos)
+                                break
+                        #'''
 
-                            # Get perspective data
-                            perspective = GetPerspective(result_of_distance_estimation, face_to_cam_angle, [(result_of_head_pose_estimation[0] * np.pi / 180.0), (result_of_head_pose_estimation[1] * np.pi / 180.0)])
+                        # Get distance from face landmark and gender
+                        result_of_distance_estimation, face_to_cam_angle = GetDistanceFromLandmark(result_of_face_landmaek_detection[0], result_of_face_landmaek_detection[1], result_of_head_pose_estimation, result_of_age_gender_detection, frame.shape[1], frame.shape[0], angle_of_view)
 
-                            # Update object
-                            temporary_face_list.append([x_min, y_min, x_max, y_max, result_of_age_gender_detection[0], result_of_age_gender_detection[1], perspective])
+                        # Get perspective data
+                        perspective = GetPerspective(result_of_distance_estimation, face_to_cam_angle, [(result_of_head_pose_estimation[0] * np.pi / 180.0), (result_of_head_pose_estimation[1] * np.pi / 180.0)])
 
+                        # Update object
+                        temporary_face_list.append([x_min, y_min, x_max, y_max, result_of_age_gender_detection[0], result_of_age_gender_detection[1], perspective])
+
+                        # Show data in frame
+                        if show_additional_info == True:
+                            # Face Detection
+                            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
+                            # Age Gender Detection
+                            cv2.putText(frame, text='[gender, age]', org=(x_min, y_min - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            age_gender = ' '+result_of_age_gender_detection[1] + ', ' + str(result_of_age_gender_detection[0])
+                            cv2.putText(frame, text=age_gender, org=(x_min, y_min - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            # Face Landmerk Detection
+                            for i in range(len(result_of_face_landmaek_detection)):
+                                cv2.circle(frame, center=(int(result_of_face_landmaek_detection[i][0]), int(result_of_face_landmaek_detection[i][1])), radius=1, color=(0, 255, 0), thickness=1)
+                                cv2.putText(frame, text=str(i), org=(int(result_of_face_landmaek_detection[i][0] + 1), int(result_of_face_landmaek_detection[i][1])), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.0, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            # Distance Estimation
+                            cv2.putText(frame, text='[distance]', org=(x_min, y_max + 20), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            cv2.putText(frame, text=' {:.3f}(cm)'.format(result_of_distance_estimation / 10), org=(x_min, y_max + 40), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            # Head Pose Estimation
+                            cv2.putText(frame, text='[head pose]', org=(x_min, y_max + 60), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            cv2.putText(frame, text=' yaw   = {:.3f}(degrees)'.format(result_of_head_pose_estimation[0]), org=(x_min, y_max + 80), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            cv2.putText(frame, text=' pitch = {:.3f}(degrees)'.format(result_of_head_pose_estimation[1]), org=(x_min, y_max + 100), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            cv2.putText(frame, text=' roll  = {:.3f}(degrees)'.format(result_of_head_pose_estimation[2]), org=(x_min, y_max + 120), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            DrawHeadPose(frame, result_of_head_pose_estimation, int((x_max + x_min) / 2), int((y_max + y_min) / 2), color=(0,255,0), scale=2)
+                            # Perspective
+                            cv2.putText(frame, text='[perspective]', org=(x_min, y_max + 140), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            cv2.putText(frame, text=' dx = {:.3f}(cm)'.format(perspective[0] / 10), org=(x_min, y_max + 160), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            cv2.putText(frame, text=' dy = {:.3f}(cm)'.format(-perspective[1] / 10), org=(x_min, y_max + 180), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            cv2.putText(frame, text=' dr = {:.3f}(cm)'.format(perspective[2] / 10), org=(x_min, y_max + 200), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+            
             # Check face instance
             if len(self.body_list) != 0:
                 for i in range(len(self.body_list)):
                     check_face = GetChildObject(self.body_list[i], temporary_face_list, now_time)
                     if check_face != -1:
                         self.body_list[i].UpdateFaceData(temporary_face_list[check_face][4], temporary_face_list[check_face][5], temporary_face_list[check_face][6])
+                        color = COLORS_16[(self.body_list[i].global_id + 1) % 16]
+                        cv2.rectangle(frame, (int(temporary_face_list[check_face][0]), int(temporary_face_list[check_face][1])), (int(temporary_face_list[check_face][2]), int(temporary_face_list[check_face][3])), color, 2)
+                        # Age Gender Detection
+                        cv2.putText(frame, text='[gender, age]', org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
+                        age_gender = ' '+ temporary_face_list[check_face][5] + ', ' + str(temporary_face_list[check_face][4])
+                        cv2.putText(frame, text=age_gender, org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
+                        # IsInterest
+                        cv2.putText(frame, text='[isInterest]', org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 65), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
+                        if IsInterested(temporary_face_list[check_face][6]) == 1.0:
+                            interest = 'yes'
+                        else:
+                            interest = 'no'
+                        cv2.putText(frame, text=interest, org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 45), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
 
             # Delete error instance
             if len(self.body_list) != 0:
                 di = 0
                 for i in range(len(self.body_list)):
-                    if self.body_list[i - di].last_time - self.body_list[i - di].first_time < datetime.timedelta(seconds=5) and now_time - self.body_list[i - di].last_time > datetime.timedelta(seconds=3):
+                    if self.body_list[i - di].last_time - self.body_list[i - di].first_time < datetime.timedelta(seconds=3) and now_time - self.body_list[i - di].last_time > datetime.timedelta(seconds=2):
                         del self.body_list[i - di]
                         di += 1    
        
@@ -1495,14 +1803,28 @@ class MainLegacyDevicesWithoutCamera():
             if len(self.body_list) != 0:
                 di = 0
                 for i in range(len(self.body_list)):
-                    if self.body_list[i - di].last_time - self.body_list[i - di].first_time >= datetime.timedelta(seconds=5) and now_time - self.body_list[i - di].last_time > datetime.timedelta(seconds=10):
+                    if self.body_list[i - di].last_time - self.body_list[i - di].first_time >= datetime.timedelta(seconds=3) and now_time - self.body_list[i - di].last_time > datetime.timedelta(seconds=10):
                         PushDatabase(self.body_list[i - di], self.client)
                         del self.body_list[i - di]
                         di += 1     
 
-        # Show FPS
-        frame_rate = DrawFPS(frame, fps_time, 10, 10)
-        print(frame_rate)
+
+            # Show FPS
+            frame_rate = DrawFPS(frame, fps_time, 10, 10)
+            if DEBUG_OPTION == True:
+                print(frame_rate)
+
+            # Show frame in window
+            #frame = cv2.resize(frame, (int(frame.shape[1] / 2), int(frame.shape[0] / 2)) )
+            frame = cv2.resize(frame, (640,360))
+            cv2.imshow('Camera', frame)
+
+            # Exit (key is esc)
+            cv2.waitKey(1)
+            if cv2.getWindowProperty('Camera', cv2.WND_PROP_VISIBLE) == 0:
+                print('[INFO] Closed by opencv window')
+                return -1
+
         pass
 
     def __del__(self):
@@ -1511,9 +1833,10 @@ class MainLegacyDevicesWithoutCamera():
             self.client.Disonnect()
         self.capture.release()
         self.settings.Save()
+        cv2.destroyAllWindows()
         pass
 
-class MainLegacyDevices():
+class MainLegacy():
     def __init__(self):
         # Load settings
         self.settings = Settings(SETTING_FILE_PATH)
@@ -1610,7 +1933,7 @@ class MainLegacyDevices():
         ie = IECore()
         
         # Setup person detection
-        self.input_name_PD, self.input_shape_PD, _, _, self.exec_net_PD = SetupModel(ie, device_name, PD)
+        self.input_name_PD, self.input_shape_PD, self.out_name_PD, _, self.exec_net_PD = SetupModel(ie, device_name, PD)
 
         # Setup person re-identification
         self.input_name_PR, self.input_shape_PR, self.out_name_PR, _, self.exec_net_PR = SetupModel(ie, device_name, PR)
@@ -1619,13 +1942,13 @@ class MainLegacyDevices():
         self.input_name_FD, self.input_shape_FD, self.out_name_FD, _, self.exec_net_FD = SetupModel(ie, device_name, FD)
 
         # Setup age gender detectuon
-        self.input_name_AGD, self.input_shape_AGD, _, _, self.exec_net_AGD = SetupModel(ie, device_name, AGD)
+        self.input_name_AGD, self.input_shape_AGD, self.out_name_AGD, _, self.exec_net_AGD = SetupModel(ie, device_name, AGD)
         
         # Setup face landmark(5) detection
         self.input_name_LD5, self.input_shape_LD5, self.out_name_LD5, _, self.exec_net_LD5 = SetupModel(ie, device_name, LD5)
 
         # Setup head pose estimation
-        self.input_name_HPE, self.input_shape_HPE, _, _, self.exec_net_HPE = SetupModel(ie, device_name, HPE)
+        self.input_name_HPE, self.input_shape_HPE, self.out_name_HPE, _, self.exec_net_HPE = SetupModel(ie, device_name, HPE)
 
         # Create body class list
         self.body_list = []
@@ -1644,6 +1967,9 @@ class MainLegacyDevices():
         # Accsess to server (SERVER mode)
         if save_mode == 'SERVER':
             self.client = WebSocketClient(server_address)
+            if ALLOW_WITHOUT_SERVER == False and self.client.isConnected == False:
+                PrintConsleWindow("[Info] Exit this software.")
+                return None
 
         # Set runnning flag
         is_running = True
@@ -1681,10 +2007,13 @@ class MainLegacyDevices():
 
     def MainLoop(self):
         # Get a frame
+        global CAM_ROTATE
         ret, frame = self.capture.read()
         if ret == False:
             self.window.after(max(1, int((1.0 / int(cam_fps)) * 1000)), self.MainLoop)
             return
+        if CAM_ROTATE == True:
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
         start_time = time.time()
 
         # Get now time
@@ -1700,21 +2029,46 @@ class MainLegacyDevices():
         if is_running == True:
             # Get person detction data
             temporary_body_list = []
-            result_of_person_detection = GetDetectionData(frame, self.exec_net_PD, self.input_name_PD, self.input_shape_PD)
-            for person_object in result_of_person_detection[self.out_name_FD][0][0]:
-                if person_object[2] > THRESHOLD_PERSON_DETECTION:
-                    px_min, py_min, px_max, py_max = GetXYMinMaxFromDetection(person_object,frame)
+            
+            GetDetectionDataStartAsync(frame, self.exec_net_PD, self.input_name_PD, self.input_shape_PD)
+            GetDetectionDataStartAsync (frame, self.exec_net_FD, self.input_name_FD, self.input_shape_FD)
+            while True:
+                if self.exec_net_PD.requests[0].wait(-1) == 0 and self.exec_net_FD.requests[0].wait(-1) == 0:
+                    result_of_person_detection = GetDetectionDataGetAsync(self.exec_net_PD, self.out_name_PD)
+                    result_of_face_detection = GetDetectionDataGetAsync (self.exec_net_FD, self.out_name_FD)
+                    break
 
-                    person = frame[py_min:py_max,px_min:px_max]
+            if 'person-detection-asl-0001' in PD:
+                for person_object in result_of_person_detection[self.out_name_PD]:
+                    if person_object[4] > THRESHOLD_PERSON_DETECTION_ASL:
+                        px_min, py_min, px_max, py_max = GetXYMinMaxFromDetection(person_object[0] / 320, person_object[1] / 320, person_object[2] / 320, person_object[3] / 320, frame)
+                        #print("get person!")
 
-                    # Get person id and check
-                    result_of_person_id = GetDetectionData(person, self.exec_net_PR, self.input_name_PR, self.input_shape_PR)
+                        person = frame[py_min:py_max,px_min:px_max]
 
-                    # Update object
-                    temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
+                        # Get person id and check
+                        result_of_person_id = GetDetectionData(person, self.exec_net_PR, self.input_name_PR, self.input_shape_PR)
 
-                    # Show in window
-                    cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (255, 0, 255), 2)
+                        # Update object
+                        temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
+
+                        # Show in window
+                        cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (255, 0, 255), 2)
+            else:
+                for person_object in result_of_person_detection[self.out_name_PD][0][0]:
+                    if person_object[2] > THRESHOLD_PERSON_DETECTION:
+                        px_min, py_min, px_max, py_max = GetXYMinMaxFromDetectionFromOutputObject(person_object,frame)
+
+                        person = frame[py_min:py_max,px_min:px_max]
+
+                        # Get person id and check
+                        result_of_person_id = GetDetectionData(person, self.exec_net_PR, self.input_name_PR, self.input_shape_PR)
+
+                        # Update object
+                        temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
+
+                        # Show in window
+                        cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (255, 0, 255), 2)
 
             # Check body instance
             if len(self.body_list) != 0:
@@ -1771,10 +2125,10 @@ class MainLegacyDevices():
 
             # Get face detection data
             temporary_face_list = []
-            result_of_face_detection = GetDetectionData(frame, self.exec_net_FD, self.input_name_FD, self.input_shape_FD)
+            
             for face_object in result_of_face_detection[self.out_name_FD][0][0]:
                 if face_object[2] > THRESHOLD_FACE_DETECTION:
-                    face_pos = GetXYMinMaxFromDetection(face_object,frame)
+                    face_pos = GetXYMinMaxFromDetectionFromOutputObject(face_object,frame)
                     x_min, y_min, x_max, y_max = face_pos
                     # Error check
                     if ((x_max - x_min) * 1.8) - (y_max - y_min) < 0:
@@ -1853,7 +2207,7 @@ class MainLegacyDevices():
             if len(self.body_list) != 0:
                 di = 0
                 for i in range(len(self.body_list)):
-                    if self.body_list[i - di].last_time - self.body_list[i - di].first_time < datetime.timedelta(seconds=5) and now_time - self.body_list[i - di].last_time > datetime.timedelta(seconds=3):
+                    if self.body_list[i - di].last_time - self.body_list[i - di].first_time < datetime.timedelta(seconds=3) and now_time - self.body_list[i - di].last_time > datetime.timedelta(seconds=2):
                         del self.body_list[i - di]
                         di += 1    
        
@@ -1861,13 +2215,15 @@ class MainLegacyDevices():
             if len(self.body_list) != 0:
                 di = 0
                 for i in range(len(self.body_list)):
-                    if self.body_list[i - di].last_time - self.body_list[i - di].first_time >= datetime.timedelta(seconds=5) and now_time - self.body_list[i - di].last_time > datetime.timedelta(seconds=10):
+                    if self.body_list[i - di].last_time - self.body_list[i - di].first_time >= datetime.timedelta(seconds=3) and now_time - self.body_list[i - di].last_time > datetime.timedelta(seconds=10):
                         PushDatabase(self.body_list[i - di], self.client)
                         del self.body_list[i - di]
                         di += 1     
 
         # Show FPS
         frame_rate = DrawFPS(frame, fps_time, 10, 10)
+        if DEBUG_OPTION == True:
+            print(frame_rate)
 
         # Show Camera frame
         frame = cv2.cvtColor(cv2.resize(frame, (int(self.camera_view.winfo_width()), int(self.camera_view.winfo_height()))), cv2.COLOR_BGR2RGB)
@@ -1888,17 +2244,18 @@ class MainLegacyDevices():
         pass
 
 if __name__ == '__main__':
-    # General mode (use DearPyGUI)
-    if PLATFORM == WINDOWS or PLATFORM == LINUX or PLATFORM == RASPBERRY_PI_4 or PLATFORM == RASPBERRY_PI_4_NCS_2:
+    # Modern mode (use only DearPyGUI)
+    if GUI_MODE == GUI_FULL:
         Main()
         pass
-    # Super lite mode (use Tkinter, without camera frame)
-    elif PLATFORM == RASPBERRY_PI_WITHOUT_CAMERA_VIEW or PLATFORM == RASPBERRY_PI_4_WITHOUT_CAMERA_VIEW or PLATFORM == RASPBERRY_PI_NCS_2_WITHOUT_CAMERA_VIEW or PLATFORM == RASPBERRY_PI_4_NCS_2_WITHOUT_CAMERA_VIEW or PLATFORM == WINDOWS_WITHOUT_CAMERA_VIEW or PLATFORM == LINUX_WITHOUT_CAMERA_VIEW:
-        main_process = MainLegacyDevicesWithoutCamera()
-        del main_process
+    # Lite mode (use Tkinter, Opencv imshow)
+    elif GUI_MODE == GUI_LITE:
+        if PLATFORM != WINDOWS_EXE:
+            main_process = MainLite()
+            del main_process
         pass
-    # Legacy mode (use Tkinter)
+    # Legacy mode (use only Tkinter)
     else:
-        main_process = MainLegacyDevices()
+        main_process = MainLegacy()
         del main_process
         pass
