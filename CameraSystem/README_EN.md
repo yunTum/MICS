@@ -20,7 +20,7 @@
 
 - opencv-python
 
-#### [Arm(Raspberry Pi 3B) + Intel NCS]
+#### [Raspberry Pi 3B(Arm) + Intel NCS]
 
 - Python 3.7
 

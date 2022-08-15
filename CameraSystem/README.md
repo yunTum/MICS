@@ -69,7 +69,7 @@
    python mics_camera_system.py
    ```
 
-#### [Arm(Raspberry Pi 3B) + Intel NCS]
+#### [Raspberry Pi 3B(Arm) + Intel NCS]
 
 1. Python3.7をインストールします。
    
