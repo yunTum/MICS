@@ -1,4 +1,4 @@
-[[EN]()/JP]
+[[EN](https://github.com/yunTum/MICS/blob/main/CameraSystem/README_EN.md)/JP]
 
 # Camera System
 
