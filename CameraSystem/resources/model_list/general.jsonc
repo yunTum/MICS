@@ -1,0 +1,29 @@
+{
+   "Model of person detection"        :"./models/2022_1/person-detection-retail-0013/FP32/person-detection-retail-0013",
+   "Model of person reidentification" :"./models/2022_1/person-reidentification-retail-0288/FP32/person-reidentification-retail-0288",
+   "Model of face detection"          :"./models/2022_1/face-detection-retail-0005/FP32/face-detection-retail-0005",
+   "Model of age gender recognition"  :"./models/2022_1/age-gender-recognition-retail-0013/FP32/age-gender-recognition-retail-0013",
+   "Model of face landmarks detection":"./models/2022_1/landmarks-regression-retail-0009/FP32/landmarks-regression-retail-0009",
+   "Model of head pose estimation"    :"./models/2022_1/head-pose-estimation-adas-0001/FP32/head-pose-estimation-adas-0001"
+}
+/*
+Models that can be changed
+"Model of person detection" 
+./models/2022_1/person-detection-0200/FP32/person-detection-0200
+./models/2022_1/person-detection-0200/FP16/person-detection-0200
+./models/2022_1/person-detection-retail-0013/FP32/person-detection-retail-0013
+./models/2022_1/person-detection-retail-0013/FP16/person-detection-retail-0013
+./models/2022_1/person-detection-asl-0001/FP32/person-detection-asl-0001
+./models/2022_1/person-detection-asl-0001/FP16/person-detection-asl-0001
+"Model of person reidentification"
+./models/2022_1/person-reidentification-retail-0287/FP32/person-reidentification-retail-0287
+./models/2022_1/person-reidentification-retail-0287/FP16/person-reidentification-retail-0287
+./models/2022_1/person-reidentification-retail-0288/FP32/person-reidentification-retail-0288
+./models/2022_1/person-reidentification-retail-0288/FP16/person-reidentification-retail-0288
+"Model of face detection" 
+./models/2022_1/face-detection-adas-0001/FP32/face-detection-adas-0001
+./models/2022_1/face-detection-adas-0001/FP16/face-detection-adas-0001
+./models/2022_1/face-detection-retail-0005/FP32/face-detection-retail-0005
+./models/2022_1/face-detection-retail-0005/FP16/face-detection-retail-0005
+*/
+

@@ -1,7 +1,7 @@
 # mics_camera_system
 # 2022 kasys1422
 # The core app of MICS(Measuring Interest with a Camera System)
-VERSION = '0.0.12'
+VERSION = '0.0.13'
 
 # Import
 import os
@@ -29,6 +29,10 @@ try:
         HOG_SVM = json_text['PERSON_DETECTION_WITH_HOG_SVM']
         ALLOW_WITHOUT_SERVER = json_text['ALLOW_LAUNCH_SYSTEM_WHEN_COULD_NOT_CONNECT_TO_SERVER']
         CAM_ROTATE = json_text['CAM_ROTATE']
+        if json_text['MODE_OF_DISRUBUTION'] != 'Only Source':
+            SHOW_TPL = True
+        else:
+            SHOW_TPL = False
 except:
     print('[Error] Could nor read platform settings. Please check "./resources/platform.jsonc".')
     PLATFORM = "Unknown platform"
@@ -37,6 +41,7 @@ except:
     HOG_SVM = False
     ALLOW_WITHOUT_SERVER = False
     CAM_ROTATE = False
+    SHOW_TPL = False
 
 LINUX = 'Linux (x64)'
 WINDOWS = 'Windows (x64)'
@@ -86,19 +91,21 @@ COLORS_16 = ((173,255, 47),
 
 def LoadModelList(PLATFORM):
     if PLATFORM == RASPBERRY_PI_NCS_2 or PLATFORM == RASPBERRY_PI_4_NCS_2:
-        list_path  = "./resources/model_list/ncs2.list"
+        list_path  = "./resources/model_list/ncs2.jsonc"
     elif PLATFORM == RASPBERRY_PI or PLATFORM == RASPBERRY_PI_4:
-        list_path  = "./resources/model_list/ncs.list"
+        list_path  = "./resources/model_list/ncs.jsonc"
     else:
-        list_path  = "./resources/model_list/general.list"
+        list_path  = "./resources/model_list/general.jsonc"
     try:
         with open(list_path, 'r', newline='', encoding="utf-8") as f:
-            PD  =  f.readline().rstrip("\n") 
-            PR  =  f.readline().rstrip("\n")
-            FD  =  f.readline().rstrip("\n")
-            AGD =  f.readline().rstrip("\n")
-            LD5 =  f.readline().rstrip("\n")
-            HPE =  f.readline().rstrip("\n")
+            text = re.sub(r'/\*[\s\S]*?\*/|//.*', '', f.read())
+            json_text = json.loads(text)
+            PD  =  json_text['Model of person detection']
+            PR  =  json_text['Model of person reidentification']
+            FD  =  json_text['Model of face detection']
+            AGD =  json_text['Model of age gender recognition']
+            LD5 =  json_text['Model of face landmarks detection']
+            HPE =  json_text['Model of head pose estimation']
     except:
         print("[Error] can not read model list")
         PD  ="./models/2022_1/person-detection-retail-0013/FP16/person-detection-retail-0013"
@@ -509,6 +516,7 @@ def SaveLayout():
     PrintConsleWindow('[Info] Save layout setting to "'+ LAYOUT_SETTING_FILE_PATH + '"')
     dpg.save_init_file(LAYOUT_SETTING_FILE_PATH)
 
+
 # Class
 global_id = 0
 class Object:
@@ -643,7 +651,7 @@ class WebSocketClient():
     def CheckTimeout(self):
         if self.isConnected == True:
             time_delta = datetime.datetime.now() - self.last_time
-            if time_delta > datetime.timedelta(seconds=self.ws.timeout - 10):
+            if time_delta > datetime.timedelta(seconds=15):
                 try:
                     self.ws.ping()          # send ping
                     self.last_time = datetime.datetime.now()
@@ -663,7 +671,17 @@ class WebSocketClient():
                         self.isConnected = False
                 except:
                     PrintConsleWindow("[ERROR] Can not send ping to server")
-                    pass
+                    PrintConsleWindow("[INFO] Try to reconnect")
+                    self.isConnected = True
+                    try:
+                        self.ws = websocket.WebSocket()
+                        self.ws.connect(self.host)
+                        self.ws.settimeout(60)
+                        self.isConnected = True
+                        PrintConsleWindow("[Info] Successfully connected to server")
+                    except:
+                        PrintConsleWindow("[Info] Disonnected and stop recording") 
+                        self.isConnected = False
 
     def PushDataList(self, interested, age, gender, start_time, end_time):
         self.data_list.append((interested, age, gender, start_time, end_time))
@@ -813,7 +831,321 @@ class Settings():
         with open(self.path, 'w', encoding="utf-8") as f:
             json.dump(save_value, f)
         pass
+
+class MainSystemProcess:
+    def __init__(self, settings, auto_start):
+        # Exit flag
+        self.exit = False
+
+        # Load settings
+        self.settings = settings
+
+        # Setup OpenVINO
+        # Generate Inference Engine Core object
+        self.ie = IECore()
+        
+        # Setup person detection
+        self.input_name_PD,  self.input_shape_PD,  self.out_name_PD,  _, self.exec_net_PD  = SetupModel(self.ie, device_name, PD)
+
+        # Setup person re-identification
+        self.input_name_PR,  self.input_shape_PR,  self.out_name_PR,  _, self.exec_net_PR  = SetupModel(self.ie, device_name, PR)
+
+        # Setup face detection
+        self.input_name_FD,  self.input_shape_FD,  self.out_name_FD,  _, self.exec_net_FD  = SetupModel(self.ie, device_name, FD)
+
+        # Setup age gender detectuon
+        self.input_name_AGD, self.input_shape_AGD, self.out_name_AGD, _, self.exec_net_AGD = SetupModel(self.ie, device_name, AGD)
+        
+        # Setup face landmark(5) detection
+        self.input_name_LD5, self.input_shape_LD5, self.out_name_LD5, _, self.exec_net_LD5 = SetupModel(self.ie, device_name, LD5)
+
+        # Setup head pose estimation
+        self.input_name_HPE, self.input_shape_HPE, self.out_name_HPE, _, self.exec_net_HPE = SetupModel(self.ie, device_name, HPE)
+
+        # Create body class list
+        self.body_list = []
+
+        if HOG_SVM == True:
+            self.hog = cv2.HOGDescriptor()
+            self.hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+            self.hog_params = {'winStride': (8, 8), 'padding': (32, 32), 'scale': 1.2}
+            self.hog_scale = 2.0
+
+        # Launch message
+        PrintConsleWindow('[Info] Launch mics-dev version ' + VERSION)
+
+        # Setup camera
+        self.capture = SetupCamera(cam_id, cam_x, cam_y, cam_fps)
+
+        # Make csv file (CSV mode)
+        if save_mode == 'CSV': 
+            SetupCSV()
+
+        # Accsess to server (SERVER mode)
+        if save_mode == 'SERVER':
+            self.client = WebSocketClient(server_address)
+            if ALLOW_WITHOUT_SERVER == False and self.client.isConnected == False:
+                PrintConsleWindow("[Info] Exit this software.")
+                return None
+
+        # Set runnning flag
+        global is_running
+        is_running = auto_start
+
+    def Loop(self):
+        # Get a frame
+        global CAM_ROTATE
+        ret, frame = self.capture.read()
+        if ret == False:
+            print('[ERROR] Can not open camera')
+            return None, False
+        if CAM_ROTATE == True:
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
+
+        # Get now time
+        now_time = datetime.datetime.now()
     
+        # Check server
+        if save_mode == 'SERVER':
+            self.client.CheckTimeout()
+            self.client.PushSequentially()
+        else:
+            self.client = None
+
+        if is_running == True:
+            # Get person detction data
+            temporary_body_list = []
+
+            if HOG_SVM == True:
+                GetDetectionDataStartAsync (frame, self.exec_net_FD, self.input_name_FD, self.input_shape_FD)
+                result_of_person_detection, _ = self.hog.detectMultiScale(cv2.resize(frame, (int(cam_x / self.hog_scale), int(cam_y / self.hog_scale))), **self.hog_params)
+                while True:
+                    if self.exec_net_FD.requests[0].wait(-1) == 0:
+                        result_of_face_detection = GetDetectionDataGetAsync (self.exec_net_FD, self.out_name_FD)
+                        break
+
+                for (x, y, w, h) in result_of_person_detection:
+                        px_min, py_min, px_max, py_max = int(x * self.hog_scale) , int(y * self.hog_scale), int(x * self.hog_scale + w * self.hog_scale), int(y * self.hog_scale + h * self.hog_scale)
+                        person = frame[py_min:py_max,px_min:px_max]
+
+                        # Get person id and check
+                        result_of_person_id = GetDetectionData(person, self.exec_net_PR, self.input_name_PR, self.input_shape_PR)
+
+                        # Update object
+                        temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
+                    
+                        # Show in window
+                        cv2.rectangle(frame, (x, y),(x+w, y+h),(0,50,255), 3)
+
+            else:
+                GetDetectionDataStartAsync(frame, self.exec_net_PD, self.input_name_PD, self.input_shape_PD)
+                GetDetectionDataStartAsync (frame, self.exec_net_FD, self.input_name_FD, self.input_shape_FD)
+                while True:
+                    if self.exec_net_PD.requests[0].wait(-1) == 0 and self.exec_net_FD.requests[0].wait(-1) == 0:
+                        result_of_person_detection = GetDetectionDataGetAsync(self.exec_net_PD, self.out_name_PD)
+                        result_of_face_detection = GetDetectionDataGetAsync (self.exec_net_FD, self.out_name_FD)
+                        break
+                
+                if 'person-detection-asl-0001' in PD:
+                    for person_object in result_of_person_detection[self.out_name_PD]:
+                        if person_object[4] > THRESHOLD_PERSON_DETECTION_ASL:
+                            px_min, py_min, px_max, py_max = GetXYMinMaxFromDetection(person_object[0] / 320, person_object[1] / 320, person_object[2] / 320, person_object[3] / 320, frame)
+
+                            person = frame[py_min:py_max,px_min:px_max]
+
+                            # Get person id and check
+                            result_of_person_id = GetDetectionData(person, self.exec_net_PR, self.input_name_PR, self.input_shape_PR)
+
+                            # Update object
+                            temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
+
+                            # Show in window
+                            cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (255, 0, 255), 2)
+
+                else:
+                    for person_object in result_of_person_detection[self.out_name_PD][0][0]:
+                        if person_object[2] > THRESHOLD_PERSON_DETECTION:
+                            px_min, py_min, px_max, py_max = GetXYMinMaxFromDetectionFromOutputObject(person_object,frame)
+
+                            person = frame[py_min:py_max,px_min:px_max]
+
+                            # Get person id and check
+                            result_of_person_id = GetDetectionData(person, self.exec_net_PR, self.input_name_PR, self.input_shape_PR)
+
+                            # Update object
+                            temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
+
+                            # Show in window
+                            cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (255, 0, 255), 2)
+
+            # Check body instance
+            if len(self.body_list) != 0:
+                for j in range(len(self.body_list)):
+                    # Chack update body instance
+                    if len(temporary_body_list) != 0:
+                        compare_list = []
+                        cos_sim_list = []
+                        iou_list = []
+                        for i in range(len(temporary_body_list)):
+                            cos_sim = GetPersonCosineSimilarity(temporary_body_list[i][0], self.body_list[j].obj_id)
+                            iou = self.body_list[j].GetIOU(temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], now_time)
+                            compare_list.append([iou, cos_sim])
+                            cos_sim_list.append([cos_sim])
+                            iou_list.append([iou])
+                        cos_sim_list = np.array(cos_sim_list)
+                        iou_list = np.array(iou_list)
+                        row_index = [np.argmax(iou_list), np.argmax(cos_sim_list)]
+                
+                        if compare_list[row_index[0]][0] < 0.1 and compare_list[row_index[1]][1] <  THRESHOLD_PERSON_REIDENTIFICATION:
+                            pass
+                        else:
+                            # Maximized IOU and cos_sim are same
+                            if row_index[0] == row_index[1]:
+                                self.body_list[j].Update(temporary_body_list[row_index[0]][0], temporary_body_list[row_index[0]][1], temporary_body_list[row_index[0]][2], temporary_body_list[row_index[0]][3], temporary_body_list[row_index[0]][4], now_time)
+                                temporary_body_list[row_index[0]][0] = -1
+
+                            # Use IOU
+                            elif compare_list[row_index[0]][0] >= compare_list[row_index[1]][1] / 2 and now_time - self.body_list[j].last_time > datetime.timedelta(seconds=1):
+                                self.body_list[j].Update(temporary_body_list[row_index[0]][0], temporary_body_list[row_index[0]][1], temporary_body_list[row_index[0]][2], temporary_body_list[row_index[0]][3], temporary_body_list[row_index[0]][4], now_time)
+                                temporary_body_list[row_index[0]][0] = -1
+
+                            # Use Cosine Similarity
+                            else:
+                                self.body_list[j].Update(temporary_body_list[row_index[1]][0], temporary_body_list[row_index[1]][1], temporary_body_list[row_index[1]][2], temporary_body_list[row_index[1]][3], temporary_body_list[row_index[1]][4], now_time)
+                                temporary_body_list[row_index[1]][0] = -1
+
+                            # Info
+                            color = COLORS_16[(self.body_list[j].global_id + 1) % 16]
+                            #cv2.rectangle(frame, (int(body_list[j].estimated_x_min), int(body_list[j].estimated_y_min)), (int(body_list[j].estimated_x_max), int(body_list[j].estimated_y_max)), color, 2)                        
+                            cv2.rectangle(frame, (int(self.body_list[j].x_min[0]), int(self.body_list[j].y_min[0])), (int(self.body_list[j].x_max[0]), int(self.body_list[j].y_max[0])), color, 2)                        
+                            cv2.putText(frame, text='id = ' + str(self.body_list[j].global_id), org=(self.body_list[j].x_min[0], self.body_list[j].y_min[0] - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)                              
+
+                    
+
+            # Create new body instance
+            if len(temporary_body_list) != 0:
+                for i in range(len(temporary_body_list)):
+                    if temporary_body_list[i][0] != -1:
+                        self.body_list.append(Body(temporary_body_list[i][0], temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], now_time))  
+
+            # CheckUpdate (experimental)     
+            if len(self.body_list) != 0:
+                for j in range(len(self.body_list)):
+                    self.body_list[j].CheckUpdate()
+
+            # Get face detection data
+            temporary_face_list = []
+        
+            for face_object in result_of_face_detection[self.out_name_FD][0][0]:
+                if face_object[2] > THRESHOLD_FACE_DETECTION:
+                    face_pos = GetXYMinMaxFromDetectionFromOutputObject(face_object,frame)
+                    x_min, y_min, x_max, y_max = face_pos
+                    # Error check
+                    if ((x_max - x_min) * 1.8) - (y_max - y_min) < 0:
+                        pass
+                    else:
+                        # Get face image
+                        face = frame[y_min:y_max,x_min:x_max]
+
+                        # Start excute async to get age and gender from face image
+                        GetDetectionDataStartAsync(face, self.exec_net_AGD, self.input_name_AGD, self.input_shape_AGD)
+                    
+                        # Start excute async to get head pose estimation
+                        GetDetectionDataStartAsync(face, self.exec_net_HPE, self.input_name_HPE, self.input_shape_HPE)
+                    
+                        # Start excute async to get face landmark from face image
+                        GetDetectionDataStartAsync(face, self.exec_net_LD5, self.input_name_LD5, self.input_shape_LD5)
+                    
+                        while True:
+                            if self.exec_net_AGD.requests[0].wait(-1) == 0 and self.exec_net_HPE.requests[0].wait(-1) == 0 and self.exec_net_LD5.requests[0].wait(-1) == 0:
+                                # Get age and gender from face image
+                                result_of_age_gender_detection = GetAgeGenderDataGetAsync(self.exec_net_AGD, self.out_name_AGD)                               
+                                # Get head pose estimation
+                                result_of_head_pose_estimation = GetHeadPoseEstimationDataGetAsync(self.exec_net_HPE, self.out_name_HPE)
+                                # Get face landmark from face image
+                                result_of_face_landmaek_detection = GetFaceLandmarkDetectionDataGetAsync(face, self.exec_net_LD5, self.out_name_LD5, face_pos)
+                                break
+
+                        # Get distance from face landmark and gender
+                        result_of_distance_estimation, face_to_cam_angle = GetDistanceFromLandmark(result_of_face_landmaek_detection[0], result_of_face_landmaek_detection[1], result_of_head_pose_estimation, result_of_age_gender_detection, frame.shape[1], frame.shape[0], angle_of_view)
+
+                        # Get perspective data
+                        perspective = GetPerspective(result_of_distance_estimation, face_to_cam_angle, [(result_of_head_pose_estimation[0] * np.pi / 180.0), (result_of_head_pose_estimation[1] * np.pi / 180.0)])
+
+                        # Update object
+                        temporary_face_list.append([x_min, y_min, x_max, y_max, result_of_age_gender_detection[0], result_of_age_gender_detection[1], perspective])
+
+                        # Show data in frame
+                        if show_additional_info == True:
+                            # Face Detection
+                            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
+                            # Age Gender Detection
+                            cv2.putText(frame, text='[gender, age]', org=(x_min, y_min - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            age_gender = ' '+result_of_age_gender_detection[1] + ', ' + str(result_of_age_gender_detection[0])
+                            cv2.putText(frame, text=age_gender, org=(x_min, y_min - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            # Face Landmerk Detection
+                            for i in range(len(result_of_face_landmaek_detection)):
+                                cv2.circle(frame, center=(int(result_of_face_landmaek_detection[i][0]), int(result_of_face_landmaek_detection[i][1])), radius=1, color=(0, 255, 0), thickness=1)
+                                cv2.putText(frame, text=str(i), org=(int(result_of_face_landmaek_detection[i][0] + 1), int(result_of_face_landmaek_detection[i][1])), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.0, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            # Distance Estimation
+                            cv2.putText(frame, text='[distance]', org=(x_min, y_max + 20), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            cv2.putText(frame, text=' {:.3f}(cm)'.format(result_of_distance_estimation / 10), org=(x_min, y_max + 40), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            # Head Pose Estimation
+                            cv2.putText(frame, text='[head pose]', org=(x_min, y_max + 60), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            cv2.putText(frame, text=' yaw   = {:.3f}(degrees)'.format(result_of_head_pose_estimation[0]), org=(x_min, y_max + 80), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            cv2.putText(frame, text=' pitch = {:.3f}(degrees)'.format(result_of_head_pose_estimation[1]), org=(x_min, y_max + 100), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            cv2.putText(frame, text=' roll  = {:.3f}(degrees)'.format(result_of_head_pose_estimation[2]), org=(x_min, y_max + 120), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            DrawHeadPose(frame, result_of_head_pose_estimation, int((x_max + x_min) / 2), int((y_max + y_min) / 2), color=(0,255,0), scale=2)
+                            # Perspective
+                            cv2.putText(frame, text='[perspective]', org=(x_min, y_max + 140), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            cv2.putText(frame, text=' dx = {:.3f}(cm)'.format(perspective[0] / 10), org=(x_min, y_max + 160), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            cv2.putText(frame, text=' dy = {:.3f}(cm)'.format(-perspective[1] / 10), org=(x_min, y_max + 180), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+                            cv2.putText(frame, text=' dr = {:.3f}(cm)'.format(perspective[2] / 10), org=(x_min, y_max + 200), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+        
+            # Check face instance
+            if len(self.body_list) != 0:
+                for i in range(len(self.body_list)):
+                    check_face = GetChildObject(self.body_list[i], temporary_face_list, now_time)
+                    if check_face != -1:
+                        self.body_list[i].UpdateFaceData(temporary_face_list[check_face][4], temporary_face_list[check_face][5], temporary_face_list[check_face][6])
+                        color = COLORS_16[(self.body_list[i].global_id + 1) % 16]
+                        cv2.rectangle(frame, (int(temporary_face_list[check_face][0]), int(temporary_face_list[check_face][1])), (int(temporary_face_list[check_face][2]), int(temporary_face_list[check_face][3])), color, 2)
+                        # Age Gender Detection
+                        cv2.putText(frame, text='[gender, age]', org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
+                        age_gender = ' '+ temporary_face_list[check_face][5] + ', ' + str(temporary_face_list[check_face][4])
+                        cv2.putText(frame, text=age_gender, org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
+                        # IsInterest
+                        cv2.putText(frame, text='[isInterest]', org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 65), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
+                        if IsInterested(temporary_face_list[check_face][6]) == 1.0:
+                            interest = 'yes'
+                        else:
+                            interest = 'no'
+                        cv2.putText(frame, text=interest, org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 45), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
+
+            # Delete error instance
+            if len(self.body_list) != 0:
+                di = 0
+                for i in range(len(self.body_list)):
+                    if self.body_list[i - di].last_time - self.body_list[i - di].first_time < datetime.timedelta(seconds=3) and now_time - self.body_list[i - di].last_time > datetime.timedelta(seconds=2):
+                        del self.body_list[i - di]
+                        di += 1    
+    
+            # Delete lost instance
+            if len(self.body_list) != 0:
+                di = 0
+                for i in range(len(self.body_list)):
+                    if self.body_list[i - di].last_time - self.body_list[i - di].first_time >= datetime.timedelta(seconds=3) and now_time - self.body_list[i - di].last_time > datetime.timedelta(seconds=10):
+                        PushDatabase(self.body_list[i - di], self.client)
+                        del self.body_list[i - di]
+                        di += 1     
+
+
+            # Show FPS
+            frame_rate = DrawFPS(frame, fps_time, 10, 10)
+            if DEBUG_OPTION == True:
+                print(frame_rate)
+
+            return frame, True
 
 # Main
 def Main():
@@ -923,16 +1255,20 @@ def Main():
 
     with dpg.window(label=_('Software Information'), tag='soft_info_window',  no_collapse=False, no_close=True, horizontal_scrollbar=True):
         dpg.add_text(_('[Software version]') + '\nMICS Camera System version ' + VERSION + ' for ' + PLATFORM)
-        dpg.add_text(_('[Third Party Licenses]'))
-        try:
-            f = open('./resources/third_party_licenses.txt', 'r', encoding='UTF-8')
-            licenses_text = f.read()
-            f.close()
-            dpg.add_text(licenses_text)
-        except NameError:
-            print("[Error] Could not open licenses file")
-        except FileNotFoundError:
-            print("[Error] Could not open licenses file")
+        if SHOW_TPL == True:
+            dpg.add_text(_('[Third Party Licenses]'))
+            try:
+                f = open('./resources/third_party_licenses.txt', 'r', encoding='UTF-8')
+                licenses_text = f.read()
+                f.close()
+                dpg.add_text(licenses_text)
+            except NameError:
+                print("[Error] Could not open licenses file")
+            except FileNotFoundError:
+                print("[Error] Could not open licenses file")
+        else:
+            dpg.add_text("")
+            dpg.add_text("")
 
     with dpg.window(label=_('Console'), tag='console_window',  no_collapse=False, no_close=True, horizontal_scrollbar=True):
         dpg.add_text('[Info] Launch virtual console window', tag='console_text')
@@ -947,53 +1283,7 @@ def Main():
     dpg.configure_app(docking=True, docking_space=True)
     dpg.show_viewport()
 
-
-    # Setup OpenVINO
-    # Generate Inference Engine Core object
-    ie = IECore()
-    
-    # Setup person detection
-    input_name_PD, input_shape_PD, out_name_PD, _, exec_net_PD = SetupModel(ie, device_name, PD)
-
-    # Setup person re-identification
-    input_name_PR, input_shape_PR, _, _, exec_net_PR = SetupModel(ie, device_name, PR)
-
-    # Setup face detection
-    input_name_FD, input_shape_FD, out_name_FD, _, exec_net_FD = SetupModel(ie, device_name, FD)
-
-    # Setup age gender detectuon
-    input_name_AGD, input_shape_AGD, out_name_AGD, _, exec_net_AGD = SetupModel(ie, device_name, AGD)
-    
-    # Setup face landmark(5) detection
-    input_name_LD5, input_shape_LD5, out_name_LD5, _, exec_net_LD5 = SetupModel(ie, device_name, LD5)
-
-    # Setup head pose estimation
-    input_name_HPE, input_shape_HPE, out_name_HPE, _, exec_net_HPE = SetupModel(ie, device_name, HPE)
-
-    # Create body class list
-    body_list = []
-
-    # Launch message
-    PrintConsleWindow('[Info] Launch mics-dev version ' + VERSION)
-    PrintConsleWindow('[Info] Locale = ' + now_locale)
-
-    # Setup camera
-    capture = SetupCamera(cam_id, cam_x, cam_y, cam_fps)
-
-    # Make csv file (CSV mode)
-    if save_mode == 'CSV': 
-        SetupCSV()
-
-    # Accsess to server (SERVER mode)
-    if save_mode == 'SERVER':
-        client = WebSocketClient(server_address)
-        if ALLOW_WITHOUT_SERVER == False and client.isConnected == False:
-            PrintConsleWindow("[Info] Exit this software.")
-            dpg.destroy_context()
-            return
-
-    # Set runnning flag
-    is_running = auto_start
+    main_system = MainSystemProcess(settings, auto_start)
         
     # Loop
     while dpg.is_dearpygui_running():
@@ -1002,310 +1292,69 @@ def Main():
         if restart_flag == True:
             PrintConsleWindow('\n[Info] Reboot the system')
             # Close capture and client
-            capture.release()
+            main_system.capture.release()
             if save_mode == 'SERVER':
-                client.Disonnect()
+                main_system.client.Disonnect()
             # Change settings value
-            settings.SetValuesFromDearPyGUI()
+            main_system.settings.SetValuesFromDearPyGUI()
             # Setup again
-            capture = SetupCamera(cam_id, cam_x, cam_y, cam_fps)
+            main_system.capture = SetupCamera(cam_id, cam_x, cam_y, cam_fps)
             if save_mode == 'CSV': 
                 SetupCSV()
             if save_mode == 'SERVER':
-                client = WebSocketClient(server_address)
+                main_system.client = WebSocketClient(server_address)
             # Setup person detection
-            input_name_PD, input_shape_PD, out_name_PD, _, exec_net_PD = SetupModel(ie, device_name, PD)
+            main_system.input_name_PD, main_system.input_shape_PD, main_system.out_name_PD, _, main_system.exec_net_PD = SetupModel(main_system.ie, device_name, PD)
             
             # Setup person re-identification
-            input_name_PR, input_shape_PR, _, _, exec_net_PR = SetupModel(ie, device_name, PR)
+            main_system.input_name_PR, main_system.input_shape_PR, main_system.out_name_PR, _, main_system.exec_net_PR = SetupModel(main_system.ie, device_name, PR)
             
             # Setup face detection
-            input_name_FD, input_shape_FD, out_name_FD, _, exec_net_FD = SetupModel(ie, device_name, FD)
+            main_system.input_name_FD, main_system.input_shape_FD, main_system.out_name_FD, _, main_system.exec_net_FD = SetupModel(main_system.ie, device_name, FD)
             
             # Setup age gender detectuon
-            input_name_AGD, input_shape_AGD, out_name_AGD, _, exec_net_AGD = SetupModel(ie, device_name, AGD)
+            main_system.input_name_AGD, main_system.input_shape_AGD, main_system.out_name_AGD, _, main_system.exec_net_AGD = SetupModel(main_system.ie, device_name, AGD)
             
             # Setup face landmark(5) detection
-            input_name_LD5, input_shape_LD5, out_name_LD5, _, exec_net_LD5 = SetupModel(ie, device_name, LD5)
+            main_system.input_name_LD5, main_system.input_shape_LD5, main_system.out_name_LD5, _, main_system.exec_net_LD5 = SetupModel(main_system.ie, device_name, LD5)
             
             # Setup head pose estimation
-            input_name_HPE, input_shape_HPE, out_name_HPE, _, exec_net_HPE = SetupModel(ie, device_name, HPE)            
+            main_system.input_name_HPE, main_system.input_shape_HPE, main_system.out_name_HPE, _, main_system.exec_net_HPE = SetupModel(main_system.ie, device_name, HPE)            
             is_running = auto_start
             restart_flag = False
             counted_number = 0
             global_id = 0
-            settings.Save()
+            main_system.settings.Save()
             pass
 
-        # Get a frame
-        global CAM_ROTATE
-        ret, frame = capture.read()
-        if ret == False:
-            return
-        if CAM_ROTATE == True:
-            frame = cv2.rotate(frame, cv2.ROTATE_180)
-
-        # Get now time
-        now_time = datetime.datetime.now()
-
-        # Check runnning flag
-        is_running = dpg.get_value('is_running')
-        
-        # Check server
-        if save_mode == 'SERVER':
-            client.CheckTimeout()
-            client.PushSequentially()
-        else:
-            client = None
-
-        if is_running == True:
-            # Get person detction data
-            temporary_body_list = []
-            ''' No Use Async
-            result_of_person_detection = GetDetectionData(frame, exec_net_PD, input_name_PD, input_shape_PD)   
-            result_of_face_detection = GetDetectionData(frame, exec_net_FD, input_name_FD, input_shape_FD)
-            ''' # Use Async
-            GetDetectionDataStartAsync(frame, exec_net_PD, input_name_PD, input_shape_PD)
-            GetDetectionDataStartAsync (frame, exec_net_FD, input_name_FD, input_shape_FD)
-            while True:
-                if exec_net_PD.requests[0].wait(-1) == 0 and exec_net_FD.requests[0].wait(-1) == 0:
-                    result_of_person_detection = GetDetectionDataGetAsync(exec_net_PD, out_name_PD)
-                    result_of_face_detection = GetDetectionDataGetAsync (exec_net_FD, out_name_FD)
-                    break
-            #'''
-
-            if 'person-detection-asl-0001' in PD:
-                for person_object in result_of_person_detection[out_name_PD]:
-                    if person_object[4] > THRESHOLD_PERSON_DETECTION_ASL:
-                        px_min, py_min, px_max, py_max = GetXYMinMaxFromDetection(person_object[0] / 320, person_object[1] / 320, person_object[2] / 320, person_object[3] / 320, frame)
-                        #print("get person!")
-
-                        person = frame[py_min:py_max,px_min:px_max]
-
-                        # Get person id and check
-                        result_of_person_id = GetDetectionData(person, exec_net_PR, input_name_PR, input_shape_PR)
-
-                        # Update object
-                        temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
-
-                        # Show in window
-                        cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (255, 0, 255), 2)
-         
+        # Get processed frame
+        frame, state = main_system.Loop()
+        if state != False:
+            # Resize frame and show it in window
+            video_frame_height = max(dpg.get_item_height('video_window') - 35, 16)
+            video_frame_width = max(dpg.get_item_width('video_window') - 20, 9)
+            if video_frame_width < video_frame_height * (cam_x / cam_y):
+                video_frame_height = video_frame_width * (cam_y / cam_x)
             else:
-                for person_object in result_of_person_detection[out_name_PD][0][0]:
-                    if person_object[2] > THRESHOLD_PERSON_DETECTION:
-                        px_min, py_min, px_max, py_max = GetXYMinMaxFromDetectionFromOutputObject(person_object,frame)
-                        #print("get person!")
+                video_frame_width = video_frame_height * (cam_x / cam_y)
+            buffer_frame = ConvertImageOpenCVToDearPyGUI(cv2.resize(frame, (int(video_frame_width), int(video_frame_height))))
+            dpg.delete_item('video_window', children_only=True)
+            dpg.delete_item('video_frame')
+            with dpg.texture_registry(show=False):      
+                dpg.add_raw_texture(int(video_frame_width), int(video_frame_height), buffer_frame, tag='video_frame', format=dpg.mvFormat_Float_rgb)
+                dpg.add_image('video_frame', parent='video_window')
+            dpg.configure_item('video_frame', width=int(video_frame_width), height=int(video_frame_height))
+            dpg.set_value('video_frame', buffer_frame)
+            dpg.render_dearpygui_frame()
 
-                        person = frame[py_min:py_max,px_min:px_max]
-
-                        # Get person id and check
-                        result_of_person_id = GetDetectionData(person, exec_net_PR, input_name_PR, input_shape_PR)
-
-                        # Update object
-               
-                        temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
-                        # Show in window
-                        cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (255, 0, 255), 2)
-
-            # Check body instance
-            if len(body_list) != 0:
-                for j in range(len(body_list)):
-                    # Chack update body instance
-                    if len(temporary_body_list) != 0:
-                        compare_list = []
-                        cos_sim_list = []
-                        iou_list = []
-                        for i in range(len(temporary_body_list)):
-                            cos_sim = GetPersonCosineSimilarity(temporary_body_list[i][0], body_list[j].obj_id)
-                            iou = body_list[j].GetIOU(temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], now_time)
-                            compare_list.append([iou, cos_sim])
-                            cos_sim_list.append([cos_sim])
-                            iou_list.append([iou])
-                        cos_sim_list = np.array(cos_sim_list)
-                        iou_list = np.array(iou_list)
-                        row_index = [np.argmax(iou_list), np.argmax(cos_sim_list)]
-                    
-                        if compare_list[row_index[0]][0] < 0.1 and compare_list[row_index[1]][1] <  THRESHOLD_PERSON_REIDENTIFICATION:
-                            pass
-                        else:
-                            # Maximized IOU and cos_sim are same
-                            if row_index[0] == row_index[1]:
-                                body_list[j].Update(temporary_body_list[row_index[0]][0], temporary_body_list[row_index[0]][1], temporary_body_list[row_index[0]][2], temporary_body_list[row_index[0]][3], temporary_body_list[row_index[0]][4], now_time)
-                                temporary_body_list[row_index[0]][0] = -1
-
-                            # Use IOU
-                            elif compare_list[row_index[0]][0] >= compare_list[row_index[1]][1] / 2 and now_time - body_list[j].last_time > datetime.timedelta(seconds=1):
-                                body_list[j].Update(temporary_body_list[row_index[0]][0], temporary_body_list[row_index[0]][1], temporary_body_list[row_index[0]][2], temporary_body_list[row_index[0]][3], temporary_body_list[row_index[0]][4], now_time)
-                                temporary_body_list[row_index[0]][0] = -1
-
-                            # Use Cosine Similarity
-                            else:
-                                body_list[j].Update(temporary_body_list[row_index[1]][0], temporary_body_list[row_index[1]][1], temporary_body_list[row_index[1]][2], temporary_body_list[row_index[1]][3], temporary_body_list[row_index[1]][4], now_time)
-                                temporary_body_list[row_index[1]][0] = -1
-                        
-                            # Info
-                            color = COLORS_16[(body_list[j].global_id + 1) % 16]
-                            #cv2.rectangle(frame, (int(body_list[j].estimated_x_min), int(body_list[j].estimated_y_min)), (int(body_list[j].estimated_x_max), int(body_list[j].estimated_y_max)), color, 2)                        
-                            cv2.rectangle(frame, (int(body_list[j].x_min[0]), int(body_list[j].y_min[0])), (int(body_list[j].x_max[0]), int(body_list[j].y_max[0])), color, 2)                        
-                            cv2.putText(frame, text='id = ' + str(body_list[j].global_id), org=(body_list[j].x_min[0], body_list[j].y_min[0] - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)                              
-
-            # Create new body instance
-            if len(temporary_body_list) != 0:
-                for i in range(len(temporary_body_list)):
-                    if temporary_body_list[i][0] != -1:
-                        body_list.append(Body(temporary_body_list[i][0], temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], now_time))  
-
-            # CheckUpdate (experimental)     
-            if len(body_list) != 0:
-                for j in range(len(body_list)):
-                    body_list[j].CheckUpdate()
-
-            # Get face detection data
-            temporary_face_list = []
-            for face_object in result_of_face_detection[out_name_FD][0][0]:
-                if face_object[2] > THRESHOLD_FACE_DETECTION:
-                    face_pos = GetXYMinMaxFromDetectionFromOutputObject(face_object,frame)
-                    x_min, y_min, x_max, y_max = face_pos
-                    # Error check
-                    if ((x_max - x_min) * 1.8) - (y_max - y_min) < 0:
-                        pass
-                    else:
-                        # Get face image
-                        face = frame[y_min:y_max,x_min:x_max]
-                        ''' No Use Async
-                        # Get age and gender from face image
-                        result_of_age_gender_detection = GetAgeGenderData(face, exec_net_AGD, input_name_AGD, input_shape_AGD)
-
-                        # Get head pose estimation
-                        result_of_head_pose_estimation = GetHeadPoseEstimationData(face, exec_net_HPE, input_name_HPE,input_shape_HPE)
-                
-                        # Get face landmark from face image
-                        result_of_face_landmaek_detection = GetFaceLandmarkDetectionData(face, exec_net_LD5, input_name_LD5, input_shape_LD5, out_name_LD5, face_pos)
-
-                        ''' # Use Async
-                        # Start excute async to get age and gender from face image
-                        GetDetectionDataStartAsync(face, exec_net_AGD, input_name_AGD, input_shape_AGD)
-
-                        # Start excute async to get head pose estimation
-                        GetDetectionDataStartAsync(face, exec_net_HPE, input_name_HPE,input_shape_HPE)
-                
-                        # Start excute async to get face landmark from face image
-                        GetDetectionDataStartAsync(face, exec_net_LD5, input_name_LD5, input_shape_LD5)
-
-                        while True:
-                            if exec_net_AGD.requests[0].wait(-1) == 0 and exec_net_HPE.requests[0].wait(-1) == 0 and exec_net_LD5.requests[0].wait(-1) == 0:
-                                # Get age and gender from face image
-                                result_of_age_gender_detection = GetAgeGenderDataGetAsync(exec_net_AGD, out_name_AGD)                               
-                                # Get head pose estimation
-                                result_of_head_pose_estimation = GetHeadPoseEstimationDataGetAsync(exec_net_HPE, out_name_HPE)
-                                # Get face landmark from face image
-                                result_of_face_landmaek_detection = GetFaceLandmarkDetectionDataGetAsync(face, exec_net_LD5, out_name_LD5, face_pos)
-                                break
-                        #'''
-
-                        # Get distance from face landmark and gender
-                        result_of_distance_estimation, face_to_cam_angle = GetDistanceFromLandmark(result_of_face_landmaek_detection[0], result_of_face_landmaek_detection[1], result_of_head_pose_estimation, result_of_age_gender_detection, frame.shape[1], frame.shape[0], angle_of_view)
-
-                        # Get perspective data
-                        perspective = GetPerspective(result_of_distance_estimation, face_to_cam_angle, [(result_of_head_pose_estimation[0] * np.pi / 180.0), (result_of_head_pose_estimation[1] * np.pi / 180.0)])
-
-                        # Update object
-                        temporary_face_list.append([x_min, y_min, x_max, y_max, result_of_age_gender_detection[0], result_of_age_gender_detection[1], perspective])
-
-                        # Show data in frame
-                        if show_additional_info == True:
-                            # Face Detection
-                            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-                            # Age Gender Detection
-                            cv2.putText(frame, text='[gender, age]', org=(x_min, y_min - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            age_gender = ' '+result_of_age_gender_detection[1] + ', ' + str(result_of_age_gender_detection[0])
-                            cv2.putText(frame, text=age_gender, org=(x_min, y_min - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            # Face Landmerk Detection
-                            for i in range(len(result_of_face_landmaek_detection)):
-                                cv2.circle(frame, center=(int(result_of_face_landmaek_detection[i][0]), int(result_of_face_landmaek_detection[i][1])), radius=1, color=(0, 255, 0), thickness=1)
-                                cv2.putText(frame, text=str(i), org=(int(result_of_face_landmaek_detection[i][0] + 1), int(result_of_face_landmaek_detection[i][1])), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.0, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            # Distance Estimation
-                            cv2.putText(frame, text='[distance]', org=(x_min, y_max + 20), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' {:.3f}(cm)'.format(result_of_distance_estimation / 10), org=(x_min, y_max + 40), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            # Head Pose Estimation
-                            cv2.putText(frame, text='[head pose]', org=(x_min, y_max + 60), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' yaw   = {:.3f}(degrees)'.format(result_of_head_pose_estimation[0]), org=(x_min, y_max + 80), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' pitch = {:.3f}(degrees)'.format(result_of_head_pose_estimation[1]), org=(x_min, y_max + 100), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' roll  = {:.3f}(degrees)'.format(result_of_head_pose_estimation[2]), org=(x_min, y_max + 120), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            DrawHeadPose(frame, result_of_head_pose_estimation, int((x_max + x_min) / 2), int((y_max + y_min) / 2), color=(0,255,0), scale=2)
-                            # Perspective
-                            cv2.putText(frame, text='[perspective]', org=(x_min, y_max + 140), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' dx = {:.3f}(cm)'.format(perspective[0] / 10), org=(x_min, y_max + 160), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' dy = {:.3f}(cm)'.format(-perspective[1] / 10), org=(x_min, y_max + 180), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' dr = {:.3f}(cm)'.format(perspective[2] / 10), org=(x_min, y_max + 200), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                        
-
-            # Check face instance
-            if len(body_list) != 0:
-                for i in range(len(body_list)):
-                    check_face = GetChildObject(body_list[i], temporary_face_list, now_time)
-                    if check_face != -1:
-                        body_list[i].UpdateFaceData(temporary_face_list[check_face][4], temporary_face_list[check_face][5], temporary_face_list[check_face][6])
-                        color = COLORS_16[(body_list[i].global_id + 1) % 16]
-                        cv2.rectangle(frame, (int(temporary_face_list[check_face][0]), int(temporary_face_list[check_face][1])), (int(temporary_face_list[check_face][2]), int(temporary_face_list[check_face][3])), color, 2)
-                        # Age Gender Detection
-                        cv2.putText(frame, text='[gender, age]', org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
-                        age_gender = ' '+ temporary_face_list[check_face][5] + ', ' + str(temporary_face_list[check_face][4])
-                        cv2.putText(frame, text=age_gender, org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
-                        # IsInterest
-                        cv2.putText(frame, text='[isInterest]', org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 65), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
-                        if IsInterested(temporary_face_list[check_face][6]) == 1.0:
-                            interest = 'yes'
-                        else:
-                            interest = 'no'
-                        cv2.putText(frame, text=interest, org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 45), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
-
-            # Delete error instance
-            if len(body_list) != 0:
-                di = 0
-                for i in range(len(body_list)):
-                    if body_list[i - di].last_time - body_list[i - di].first_time < datetime.timedelta(seconds=3) and now_time - body_list[i - di].last_time > datetime.timedelta(seconds=2):
-                        del body_list[i - di]
-                        di += 1    
-       
-            # Delete lost instance
-            if len(body_list) != 0:
-                di = 0
-                for i in range(len(body_list)):
-                    if body_list[i - di].last_time - body_list[i - di].first_time >= datetime.timedelta(seconds=3) and now_time - body_list[i - di].last_time > datetime.timedelta(seconds=10):
-                        PushDatabase(body_list[i - di], client)
-                        del body_list[i - di]
-                        di += 1     
-
-        # Show FPS
-        frame_rate = DrawFPS(frame, fps_time, 10, 10)
-
-        # Resize frame and show it in window
-        video_frame_height = max(dpg.get_item_height('video_window') - 35, 16)
-        video_frame_width = max(dpg.get_item_width('video_window') - 20, 9)
-        if video_frame_width < video_frame_height * (cam_x / cam_y):
-            video_frame_height = video_frame_width * (cam_y / cam_x)
-        else:
-            video_frame_width = video_frame_height * (cam_x / cam_y)
-        buffer_frame = ConvertImageOpenCVToDearPyGUI(cv2.resize(frame, (int(video_frame_width), int(video_frame_height))))
-        dpg.delete_item('video_window', children_only=True)
-        dpg.delete_item('video_frame')
-        with dpg.texture_registry(show=False):      
-            dpg.add_raw_texture(int(video_frame_width), int(video_frame_height), buffer_frame, tag='video_frame', format=dpg.mvFormat_Float_rgb)
-            dpg.add_image('video_frame', parent='video_window')
-        dpg.configure_item('video_frame', width=int(video_frame_width), height=int(video_frame_height))
-        dpg.set_value('video_frame', buffer_frame)
-        dpg.render_dearpygui_frame()
-
-        #[Developing option] save layout
-        if dpg.is_key_pressed(dpg.mvKey_L) == True:
-            SaveLayout() 
+            #[Developing option] save layout
+            if dpg.is_key_pressed(dpg.mvKey_L) == True:
+                SaveLayout() 
 
     # Exit process
     if save_mode == 'SERVER':
-        client.Disonnect()
-    capture.release()
+        main_system.client.Disonnect()
+    main_system.capture.release()
     dpg.destroy_context()
 
 # Main (for RaspberryPi3 or any other legacy device)
@@ -1374,16 +1423,17 @@ class MainLiteGui():
         info_frame.lower()
         info_text.configure(state='normal')
         info_text.insert(tk.END ,(_('[Software version]') + '\nMICS Camera System version ' + VERSION + ' for ' + PLATFORM))
-        info_text.insert(tk.END ,('\n\n' + _('[Third Party Licenses]') + '\n\n'))
-        try:
-            f = open('./resources/third_party_licenses.txt', 'r', encoding='UTF-8')
-            licenses_text = f.read()
-            f.close()
-            info_text.insert(tk.END , licenses_text)
-        except NameError:
-            print("[Error] Could not open licenses file")
-        except FileNotFoundError:
-            print("[Error] Could not open licenses file")
+        if SHOW_TPL == True:
+            info_text.insert(tk.END ,('\n\n' + _('[Third Party Licenses]') + '\n\n'))
+            try:
+                f = open('./resources/third_party_licenses.txt', 'r', encoding='UTF-8')
+                licenses_text = f.read()
+                f.close()
+                info_text.insert(tk.END , licenses_text)
+            except NameError:
+                print("[Error] Could not open licenses file")
+            except FileNotFoundError:
+                print("[Error] Could not open licenses file")
         info_text.configure(state='disabled')
         info_text["yscrollcommand"] = y_scroll.set
         info_text["xscrollcommand"] = x_scroll.set
@@ -1427,8 +1477,6 @@ class MainLiteGui():
         self.settings_q_exit.put(1)
         pass
 
-
-
 class MainLite():
     def __init__(self):
         # Exit flag
@@ -1438,69 +1486,20 @@ class MainLite():
         self.settings = Settings(SETTING_FILE_PATH)
         self.settings.Load()
 
-        # Setup OpenVINO
-        # Generate Inference Engine Core object
-        ie = IECore()
-        
-        # Setup person detection
-        self.input_name_PD, self.input_shape_PD, self.out_name_PD, _, self.exec_net_PD = SetupModel(ie, device_name, PD)
-
-        # Setup person re-identification
-        self.input_name_PR, self.input_shape_PR, self.out_name_PR, _, self.exec_net_PR = SetupModel(ie, device_name, PR)
-
-        # Setup face detection
-        self.input_name_FD, self.input_shape_FD, self.out_name_FD, _, self.exec_net_FD = SetupModel(ie, device_name, FD)
-
-        # Setup age gender detectuon
-        self.input_name_AGD, self.input_shape_AGD, self.out_name_AGD, _, self.exec_net_AGD = SetupModel(ie, device_name, AGD)
-        
-        # Setup face landmark(5) detection
-        self.input_name_LD5, self.input_shape_LD5, self.out_name_LD5, _, self.exec_net_LD5 = SetupModel(ie, device_name, LD5)
-
-        # Setup head pose estimation
-        self.input_name_HPE, self.input_shape_HPE, self.out_name_HPE, _, self.exec_net_HPE = SetupModel(ie, device_name, HPE)
-
-        # Create body class list
-        self.body_list = []
-
-        if HOG_SVM == True:
-            self.hog = cv2.HOGDescriptor()
-            self.hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
-            self.hog_params = {'winStride': (8, 8), 'padding': (32, 32), 'scale': 1.2}
-            self.hog_scale = 2.0
-
-        # Launch message
-        PrintConsleWindow('[Info] Launch mics-dev version ' + VERSION)
-
-        # Setup camera
-        self.capture = SetupCamera(cam_id, cam_x, cam_y, cam_fps)
-
-        # Make csv file (CSV mode)
-        if save_mode == 'CSV': 
-            SetupCSV()
-
-        # Accsess to server (SERVER mode)
-        if save_mode == 'SERVER':
-            self.client = WebSocketClient(server_address)
-            if ALLOW_WITHOUT_SERVER == False and self.client.isConnected == False:
-                PrintConsleWindow("[Info] Exit this software.")
-                return None
-
-        # Set runnning flag
-        global is_running
-        is_running = True
+        # Setup
+        self.main_system = MainSystemProcess(self.settings, True)
 
         # Start GUI loop
         global size_of_interest_check_area, interest_check_area_offset
-        self.settings_q_exit = mp.Queue()
-        self.settings_q_width = mp.Queue()
-        self.settings_q_offset = mp.Queue()
-        p = mp.Process(target=MainLiteGui, args=(self.settings_q_exit, self.settings_q_width, self.settings_q_offset, size_of_interest_check_area, interest_check_area_offset,))
+        self.main_system.settings_q_exit = mp.Queue()
+        self.main_system.settings_q_width = mp.Queue()
+        self.main_system.settings_q_offset = mp.Queue()
+        p = mp.Process(target=MainLiteGui, args=(self.main_system.settings_q_exit, self.main_system.settings_q_width, self.main_system.settings_q_offset, size_of_interest_check_area, interest_check_area_offset,))
         p.start()
 
         # Get a frame once
         global CAM_ROTATE
-        ret, frame = self.capture.read()
+        ret, frame = self.main_system.capture.read()
         if ret == False:
             print('[ERROR] Can not open camera')
         if CAM_ROTATE == True:
@@ -1543,277 +1542,8 @@ class MainLite():
                 pass
 
     def MainProcess(self):
-        # Get a frame
-        global CAM_ROTATE
-        ret, frame = self.capture.read()
-        if ret == False:
-            print('[ERROR] Can not open camera')
-            return -1
-        if CAM_ROTATE == True:
-            frame = cv2.rotate(frame, cv2.ROTATE_180)
-
-        # Get now time
-        now_time = datetime.datetime.now()
-        
-        # Check server
-        if save_mode == 'SERVER':
-            self.client.CheckTimeout()
-            self.client.PushSequentially()
-        else:
-            self.client = None
-
-        if is_running == True:
-            # Get person detction data
-            temporary_body_list = []
-
-            if HOG_SVM == True:
-                GetDetectionDataStartAsync (frame, self.exec_net_FD, self.input_name_FD, self.input_shape_FD)
-                result_of_person_detection, _ = self.hog.detectMultiScale(cv2.resize(frame, (int(cam_x / self.hog_scale), int(cam_y / self.hog_scale))), **self.hog_params)
-                while True:
-                    if self.exec_net_FD.requests[0].wait(-1) == 0:
-                        result_of_face_detection = GetDetectionDataGetAsync (self.exec_net_FD, self.out_name_FD)
-                        break
-
-                for (x, y, w, h) in result_of_person_detection:
-                        px_min, py_min, px_max, py_max = int(x * self.hog_scale) , int(y * self.hog_scale), int(x * self.hog_scale + w * self.hog_scale), int(y * self.hog_scale + h * self.hog_scale)
-                        person = frame[py_min:py_max,px_min:px_max]
-
-                        # Get person id and check
-                        result_of_person_id = GetDetectionData(person, self.exec_net_PR, self.input_name_PR, self.input_shape_PR)
-
-                        # Update object
-                        temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
-                        
-                        # Show in window
-                        cv2.rectangle(frame, (x, y),(x+w, y+h),(0,50,255), 3)
-
-
-            else:
-                ''' # No Use Async
-                result_of_person_detection = GetDetectionData(frame, self.exec_net_PD, self.input_name_PD, self.input_shape_PD)
-                result_of_face_detection = GetDetectionData(frame, self.exec_net_FD, self.input_name_FD, self.input_shape_FD)
-                ''' # Use Async
-                GetDetectionDataStartAsync(frame, self.exec_net_PD, self.input_name_PD, self.input_shape_PD)
-                GetDetectionDataStartAsync (frame, self.exec_net_FD, self.input_name_FD, self.input_shape_FD)
-                while True:
-                    if self.exec_net_PD.requests[0].wait(-1) == 0 and self.exec_net_FD.requests[0].wait(-1) == 0:
-                        result_of_person_detection = GetDetectionDataGetAsync(self.exec_net_PD, self.out_name_PD)
-                        result_of_face_detection = GetDetectionDataGetAsync (self.exec_net_FD, self.out_name_FD)
-                        break
-                    
-                if 'person-detection-asl-0001' in PD:
-                    for person_object in result_of_person_detection[self.out_name_PD]:
-                        if person_object[4] > THRESHOLD_PERSON_DETECTION_ASL:
-                            px_min, py_min, px_max, py_max = GetXYMinMaxFromDetection(person_object[0] / 320, person_object[1] / 320, person_object[2] / 320, person_object[3] / 320, frame)
-                            #print("get person!")
-
-                            person = frame[py_min:py_max,px_min:px_max]
-
-                            # Get person id and check
-                            result_of_person_id = GetDetectionData(person, self.exec_net_PR, self.input_name_PR, self.input_shape_PR)
-
-                            # Update object
-                            temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
-
-                            # Show in window
-                            cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (255, 0, 255), 2)
-
-                else:
-                    for person_object in result_of_person_detection[self.out_name_PD][0][0]:
-                        if person_object[2] > THRESHOLD_PERSON_DETECTION:
-                            px_min, py_min, px_max, py_max = GetXYMinMaxFromDetectionFromOutputObject(person_object,frame)
-                            #print("get person!")
-
-                            person = frame[py_min:py_max,px_min:px_max]
-
-                            # Get person id and check
-                            result_of_person_id = GetDetectionData(person, self.exec_net_PR, self.input_name_PR, self.input_shape_PR)
-
-                            # Update object
-                            temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
-
-                            # Show in window
-                            cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (255, 0, 255), 2)
-
-            # Check body instance
-            if len(self.body_list) != 0:
-                for j in range(len(self.body_list)):
-                    # Chack update body instance
-                    if len(temporary_body_list) != 0:
-                        compare_list = []
-                        cos_sim_list = []
-                        iou_list = []
-                        for i in range(len(temporary_body_list)):
-                            cos_sim = GetPersonCosineSimilarity(temporary_body_list[i][0], self.body_list[j].obj_id)
-                            iou = self.body_list[j].GetIOU(temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], now_time)
-                            compare_list.append([iou, cos_sim])
-                            cos_sim_list.append([cos_sim])
-                            iou_list.append([iou])
-                        cos_sim_list = np.array(cos_sim_list)
-                        iou_list = np.array(iou_list)
-                        row_index = [np.argmax(iou_list), np.argmax(cos_sim_list)]
-                    
-                        if compare_list[row_index[0]][0] < 0.1 and compare_list[row_index[1]][1] <  THRESHOLD_PERSON_REIDENTIFICATION:
-                            pass
-                        else:
-                            # Maximized IOU and cos_sim are same
-                            if row_index[0] == row_index[1]:
-                                self.body_list[j].Update(temporary_body_list[row_index[0]][0], temporary_body_list[row_index[0]][1], temporary_body_list[row_index[0]][2], temporary_body_list[row_index[0]][3], temporary_body_list[row_index[0]][4], now_time)
-                                temporary_body_list[row_index[0]][0] = -1
-
-                            # Use IOU
-                            elif compare_list[row_index[0]][0] >= compare_list[row_index[1]][1] / 2 and now_time - self.body_list[j].last_time > datetime.timedelta(seconds=1):
-                                self.body_list[j].Update(temporary_body_list[row_index[0]][0], temporary_body_list[row_index[0]][1], temporary_body_list[row_index[0]][2], temporary_body_list[row_index[0]][3], temporary_body_list[row_index[0]][4], now_time)
-                                temporary_body_list[row_index[0]][0] = -1
-
-                            # Use Cosine Similarity
-                            else:
-                                self.body_list[j].Update(temporary_body_list[row_index[1]][0], temporary_body_list[row_index[1]][1], temporary_body_list[row_index[1]][2], temporary_body_list[row_index[1]][3], temporary_body_list[row_index[1]][4], now_time)
-                                temporary_body_list[row_index[1]][0] = -1
-
-                            # Info
-                            color = COLORS_16[(self.body_list[j].global_id + 1) % 16]
-                            #cv2.rectangle(frame, (int(body_list[j].estimated_x_min), int(body_list[j].estimated_y_min)), (int(body_list[j].estimated_x_max), int(body_list[j].estimated_y_max)), color, 2)                        
-                            cv2.rectangle(frame, (int(self.body_list[j].x_min[0]), int(self.body_list[j].y_min[0])), (int(self.body_list[j].x_max[0]), int(self.body_list[j].y_max[0])), color, 2)                        
-                            cv2.putText(frame, text='id = ' + str(self.body_list[j].global_id), org=(self.body_list[j].x_min[0], self.body_list[j].y_min[0] - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)                              
-
-                        
-
-            # Create new body instance
-            if len(temporary_body_list) != 0:
-                for i in range(len(temporary_body_list)):
-                    if temporary_body_list[i][0] != -1:
-                        self.body_list.append(Body(temporary_body_list[i][0], temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], now_time))  
-
-            # CheckUpdate (experimental)     
-            if len(self.body_list) != 0:
-                for j in range(len(self.body_list)):
-                    self.body_list[j].CheckUpdate()
-
-            # Get face detection data
-            temporary_face_list = []
-            
-            for face_object in result_of_face_detection[self.out_name_FD][0][0]:
-                if face_object[2] > THRESHOLD_FACE_DETECTION:
-                    face_pos = GetXYMinMaxFromDetectionFromOutputObject(face_object,frame)
-                    x_min, y_min, x_max, y_max = face_pos
-                    # Error check
-                    if ((x_max - x_min) * 1.8) - (y_max - y_min) < 0:
-                        pass
-                    else:
-                        # Get face image
-                        face = frame[y_min:y_max,x_min:x_max]
-
-                        '''
-                        # Get age and gender from face image
-                        result_of_age_gender_detection = GetAgeGenderData(face, self.exec_net_AGD, self.input_name_AGD, self.input_shape_AGD)
-
-                        # Get head pose estimation
-                        result_of_head_pose_estimation = GetHeadPoseEstimationData(face, self.exec_net_HPE, self.input_name_HPE, self.input_shape_HPE)
-            
-                        # Get face landmark from face image
-                        result_of_face_landmaek_detection = GetFaceLandmarkDetectionData(face, self.exec_net_LD5, self.input_name_LD5, self.input_shape_LD5, self.out_name_LD5, face_pos)
-
-                        ''' # Use Async
-                        # Start excute async to get age and gender from face image
-                        GetDetectionDataStartAsync(face, self.exec_net_AGD, self.input_name_AGD, self.input_shape_AGD)
-                        
-                        # Start excute async to get head pose estimation
-                        GetDetectionDataStartAsync(face, self.exec_net_HPE, self.input_name_HPE, self.input_shape_HPE)
-                        
-                        # Start excute async to get face landmark from face image
-                        GetDetectionDataStartAsync(face, self.exec_net_LD5, self.input_name_LD5, self.input_shape_LD5)
-                        
-                        while True:
-                            if self.exec_net_AGD.requests[0].wait(-1) == 0 and self.exec_net_HPE.requests[0].wait(-1) == 0 and self.exec_net_LD5.requests[0].wait(-1) == 0:
-                                # Get age and gender from face image
-                                result_of_age_gender_detection = GetAgeGenderDataGetAsync(self.exec_net_AGD, self.out_name_AGD)                               
-                                # Get head pose estimation
-                                result_of_head_pose_estimation = GetHeadPoseEstimationDataGetAsync(self.exec_net_HPE, self.out_name_HPE)
-                                # Get face landmark from face image
-                                result_of_face_landmaek_detection = GetFaceLandmarkDetectionDataGetAsync(face, self.exec_net_LD5, self.out_name_LD5, face_pos)
-                                break
-                        #'''
-
-                        # Get distance from face landmark and gender
-                        result_of_distance_estimation, face_to_cam_angle = GetDistanceFromLandmark(result_of_face_landmaek_detection[0], result_of_face_landmaek_detection[1], result_of_head_pose_estimation, result_of_age_gender_detection, frame.shape[1], frame.shape[0], angle_of_view)
-
-                        # Get perspective data
-                        perspective = GetPerspective(result_of_distance_estimation, face_to_cam_angle, [(result_of_head_pose_estimation[0] * np.pi / 180.0), (result_of_head_pose_estimation[1] * np.pi / 180.0)])
-
-                        # Update object
-                        temporary_face_list.append([x_min, y_min, x_max, y_max, result_of_age_gender_detection[0], result_of_age_gender_detection[1], perspective])
-
-                        # Show data in frame
-                        if show_additional_info == True:
-                            # Face Detection
-                            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-                            # Age Gender Detection
-                            cv2.putText(frame, text='[gender, age]', org=(x_min, y_min - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            age_gender = ' '+result_of_age_gender_detection[1] + ', ' + str(result_of_age_gender_detection[0])
-                            cv2.putText(frame, text=age_gender, org=(x_min, y_min - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            # Face Landmerk Detection
-                            for i in range(len(result_of_face_landmaek_detection)):
-                                cv2.circle(frame, center=(int(result_of_face_landmaek_detection[i][0]), int(result_of_face_landmaek_detection[i][1])), radius=1, color=(0, 255, 0), thickness=1)
-                                cv2.putText(frame, text=str(i), org=(int(result_of_face_landmaek_detection[i][0] + 1), int(result_of_face_landmaek_detection[i][1])), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.0, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            # Distance Estimation
-                            cv2.putText(frame, text='[distance]', org=(x_min, y_max + 20), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' {:.3f}(cm)'.format(result_of_distance_estimation / 10), org=(x_min, y_max + 40), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            # Head Pose Estimation
-                            cv2.putText(frame, text='[head pose]', org=(x_min, y_max + 60), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' yaw   = {:.3f}(degrees)'.format(result_of_head_pose_estimation[0]), org=(x_min, y_max + 80), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' pitch = {:.3f}(degrees)'.format(result_of_head_pose_estimation[1]), org=(x_min, y_max + 100), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' roll  = {:.3f}(degrees)'.format(result_of_head_pose_estimation[2]), org=(x_min, y_max + 120), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            DrawHeadPose(frame, result_of_head_pose_estimation, int((x_max + x_min) / 2), int((y_max + y_min) / 2), color=(0,255,0), scale=2)
-                            # Perspective
-                            cv2.putText(frame, text='[perspective]', org=(x_min, y_max + 140), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' dx = {:.3f}(cm)'.format(perspective[0] / 10), org=(x_min, y_max + 160), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' dy = {:.3f}(cm)'.format(-perspective[1] / 10), org=(x_min, y_max + 180), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' dr = {:.3f}(cm)'.format(perspective[2] / 10), org=(x_min, y_max + 200), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-            
-            # Check face instance
-            if len(self.body_list) != 0:
-                for i in range(len(self.body_list)):
-                    check_face = GetChildObject(self.body_list[i], temporary_face_list, now_time)
-                    if check_face != -1:
-                        self.body_list[i].UpdateFaceData(temporary_face_list[check_face][4], temporary_face_list[check_face][5], temporary_face_list[check_face][6])
-                        color = COLORS_16[(self.body_list[i].global_id + 1) % 16]
-                        cv2.rectangle(frame, (int(temporary_face_list[check_face][0]), int(temporary_face_list[check_face][1])), (int(temporary_face_list[check_face][2]), int(temporary_face_list[check_face][3])), color, 2)
-                        # Age Gender Detection
-                        cv2.putText(frame, text='[gender, age]', org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
-                        age_gender = ' '+ temporary_face_list[check_face][5] + ', ' + str(temporary_face_list[check_face][4])
-                        cv2.putText(frame, text=age_gender, org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
-                        # IsInterest
-                        cv2.putText(frame, text='[isInterest]', org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 65), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
-                        if IsInterested(temporary_face_list[check_face][6]) == 1.0:
-                            interest = 'yes'
-                        else:
-                            interest = 'no'
-                        cv2.putText(frame, text=interest, org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 45), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
-
-            # Delete error instance
-            if len(self.body_list) != 0:
-                di = 0
-                for i in range(len(self.body_list)):
-                    if self.body_list[i - di].last_time - self.body_list[i - di].first_time < datetime.timedelta(seconds=3) and now_time - self.body_list[i - di].last_time > datetime.timedelta(seconds=2):
-                        del self.body_list[i - di]
-                        di += 1    
-       
-            # Delete lost instance
-            if len(self.body_list) != 0:
-                di = 0
-                for i in range(len(self.body_list)):
-                    if self.body_list[i - di].last_time - self.body_list[i - di].first_time >= datetime.timedelta(seconds=3) and now_time - self.body_list[i - di].last_time > datetime.timedelta(seconds=10):
-                        PushDatabase(self.body_list[i - di], self.client)
-                        del self.body_list[i - di]
-                        di += 1     
-
-
-            # Show FPS
-            frame_rate = DrawFPS(frame, fps_time, 10, 10)
-            if DEBUG_OPTION == True:
-                print(frame_rate)
-
+        frame, state = self.main_system.Loop()
+        if state != False:
             # Show frame in window
             #frame = cv2.resize(frame, (int(frame.shape[1] / 2), int(frame.shape[0] / 2)) )
             frame = cv2.resize(frame, (640,360))
@@ -1824,18 +1554,20 @@ class MainLite():
             if cv2.getWindowProperty('Camera', cv2.WND_PROP_VISIBLE) == 0:
                 print('[INFO] Closed by opencv window')
                 return -1
-
+        else:
+            return -1
         pass
 
     def __del__(self):
         # Exit process
         if save_mode == 'SERVER':
-            self.client.Disonnect()
-        self.capture.release()
-        self.settings.Save()
+            self.main_system.client.Disonnect()
+        self.main_system.capture.release()
+        self.main_system.settings.Save()
         cv2.destroyAllWindows()
         pass
 
+# Main (for Lagacy Devices)
 class MainLegacy():
     def __init__(self):
         # Load settings
@@ -1911,16 +1643,17 @@ class MainLegacy():
         info_frame.lower()
         info_text.configure(state='normal')
         info_text.insert(tk.END ,(_('[Software version]') + '\nMICS Camera System version ' + VERSION + ' for ' + PLATFORM))
-        info_text.insert(tk.END ,('\n\n' + _('[Third Party Licenses]') + '\n\n'))
-        try:
-            f = open('./resources/third_party_licenses.txt', 'r', encoding='UTF-8')
-            licenses_text = f.read()
-            f.close()
-            info_text.insert(tk.END , licenses_text)
-        except NameError:
-            print("[Error] Could not open licenses file")
-        except FileNotFoundError:
-            print("[Error] Could not open licenses file")
+        if SHOW_TPL == True:
+            info_text.insert(tk.END ,('\n\n' + _('[Third Party Licenses]') + '\n\n'))
+            try:
+                f = open('./resources/third_party_licenses.txt', 'r', encoding='UTF-8')
+                licenses_text = f.read()
+                f.close()
+                info_text.insert(tk.END , licenses_text)
+            except NameError:
+                print("[Error] Could not open licenses file")
+            except FileNotFoundError:
+                print("[Error] Could not open licenses file")
         info_text.configure(state='disabled')
         info_text["yscrollcommand"] = y_scroll.set
         info_text["xscrollcommand"] = x_scroll.set
@@ -1928,51 +1661,8 @@ class MainLegacy():
         info_button = tk.Button(self.window, text=_('Software Information'), font=("", 20), command=lambda:info_frame.tkraise())
         info_button.pack(side = 'left', padx=20)
 
-        # Setup OpenVINO
-        # Generate Inference Engine Core object
-        ie = IECore()
-        
-        # Setup person detection
-        self.input_name_PD, self.input_shape_PD, self.out_name_PD, _, self.exec_net_PD = SetupModel(ie, device_name, PD)
-
-        # Setup person re-identification
-        self.input_name_PR, self.input_shape_PR, self.out_name_PR, _, self.exec_net_PR = SetupModel(ie, device_name, PR)
-
-        # Setup face detection
-        self.input_name_FD, self.input_shape_FD, self.out_name_FD, _, self.exec_net_FD = SetupModel(ie, device_name, FD)
-
-        # Setup age gender detectuon
-        self.input_name_AGD, self.input_shape_AGD, self.out_name_AGD, _, self.exec_net_AGD = SetupModel(ie, device_name, AGD)
-        
-        # Setup face landmark(5) detection
-        self.input_name_LD5, self.input_shape_LD5, self.out_name_LD5, _, self.exec_net_LD5 = SetupModel(ie, device_name, LD5)
-
-        # Setup head pose estimation
-        self.input_name_HPE, self.input_shape_HPE, self.out_name_HPE, _, self.exec_net_HPE = SetupModel(ie, device_name, HPE)
-
-        # Create body class list
-        self.body_list = []
-
-        # Launch message
-        PrintConsleWindow('[Info] Launch mics-dev version ' + VERSION)
-        PrintConsleWindow('[Info] Locale = ' + self.now_locale)
-
-        # Setup camera
-        self.capture = SetupCamera(cam_id, cam_x, cam_y, cam_fps)
-
-        # Make csv file (CSV mode)
-        if save_mode == 'CSV': 
-            SetupCSV()
-
-        # Accsess to server (SERVER mode)
-        if save_mode == 'SERVER':
-            self.client = WebSocketClient(server_address)
-            if ALLOW_WITHOUT_SERVER == False and self.client.isConnected == False:
-                PrintConsleWindow("[Info] Exit this software.")
-                return None
-
-        # Set runnning flag
-        is_running = True
+        # Setup
+        self.main_system = MainSystemProcess(self.settings, True)
 
         # Start loop
         self.MainLoop()
@@ -2006,241 +1696,27 @@ class MainLegacy():
         pass
 
     def MainLoop(self):
-        # Get a frame
-        global CAM_ROTATE
-        ret, frame = self.capture.read()
-        if ret == False:
+        start_time = time.time()
+        frame, state = self.main_system.Loop()
+        if state == False:
             self.window.after(max(1, int((1.0 / int(cam_fps)) * 1000)), self.MainLoop)
             return
-        if CAM_ROTATE == True:
-            frame = cv2.rotate(frame, cv2.ROTATE_180)
-        start_time = time.time()
-
-        # Get now time
-        now_time = datetime.datetime.now()
-        
-        # Check server
-        if save_mode == 'SERVER':
-            self.client.CheckTimeout()
-            self.client.PushSequentially()
         else:
-            self.client = None
+            # Show Camera frame
+            frame = cv2.cvtColor(cv2.resize(frame, (int(self.camera_view.winfo_width()), int(self.camera_view.winfo_height()))), cv2.COLOR_BGR2RGB)
+            self.window.photo = PIL.ImageTk.PhotoImage(image = PIL.Image.fromarray(frame)) 
+            self.camera_view.create_image(0,0, image= self.window.photo, anchor = tk.NW)
 
-        if is_running == True:
-            # Get person detction data
-            temporary_body_list = []
-            
-            GetDetectionDataStartAsync(frame, self.exec_net_PD, self.input_name_PD, self.input_shape_PD)
-            GetDetectionDataStartAsync (frame, self.exec_net_FD, self.input_name_FD, self.input_shape_FD)
-            while True:
-                if self.exec_net_PD.requests[0].wait(-1) == 0 and self.exec_net_FD.requests[0].wait(-1) == 0:
-                    result_of_person_detection = GetDetectionDataGetAsync(self.exec_net_PD, self.out_name_PD)
-                    result_of_face_detection = GetDetectionDataGetAsync (self.exec_net_FD, self.out_name_FD)
-                    break
-
-            if 'person-detection-asl-0001' in PD:
-                for person_object in result_of_person_detection[self.out_name_PD]:
-                    if person_object[4] > THRESHOLD_PERSON_DETECTION_ASL:
-                        px_min, py_min, px_max, py_max = GetXYMinMaxFromDetection(person_object[0] / 320, person_object[1] / 320, person_object[2] / 320, person_object[3] / 320, frame)
-                        #print("get person!")
-
-                        person = frame[py_min:py_max,px_min:px_max]
-
-                        # Get person id and check
-                        result_of_person_id = GetDetectionData(person, self.exec_net_PR, self.input_name_PR, self.input_shape_PR)
-
-                        # Update object
-                        temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
-
-                        # Show in window
-                        cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (255, 0, 255), 2)
-            else:
-                for person_object in result_of_person_detection[self.out_name_PD][0][0]:
-                    if person_object[2] > THRESHOLD_PERSON_DETECTION:
-                        px_min, py_min, px_max, py_max = GetXYMinMaxFromDetectionFromOutputObject(person_object,frame)
-
-                        person = frame[py_min:py_max,px_min:px_max]
-
-                        # Get person id and check
-                        result_of_person_id = GetDetectionData(person, self.exec_net_PR, self.input_name_PR, self.input_shape_PR)
-
-                        # Update object
-                        temporary_body_list.append([result_of_person_id, px_min, py_min, px_max, py_max])
-
-                        # Show in window
-                        cv2.rectangle(frame, (px_min, py_min), (px_max, py_max), (255, 0, 255), 2)
-
-            # Check body instance
-            if len(self.body_list) != 0:
-                for j in range(len(self.body_list)):
-                    # Chack update body instance
-                    if len(temporary_body_list) != 0:
-                        compare_list = []
-                        cos_sim_list = []
-                        iou_list = []
-                        for i in range(len(temporary_body_list)):
-                            cos_sim = GetPersonCosineSimilarity(temporary_body_list[i][0], self.body_list[j].obj_id)
-                            iou = self.body_list[j].GetIOU(temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], now_time)
-                            compare_list.append([iou, cos_sim])
-                            cos_sim_list.append([cos_sim])
-                            iou_list.append([iou])
-                        cos_sim_list = np.array(cos_sim_list)
-                        iou_list = np.array(iou_list)
-                        row_index = [np.argmax(iou_list), np.argmax(cos_sim_list)]
-                    
-                        if compare_list[row_index[0]][0] < 0.1 and compare_list[row_index[1]][1] <  THRESHOLD_PERSON_REIDENTIFICATION:
-                            pass
-                        else:
-                            # Maximized IOU and cos_sim are same
-                            if row_index[0] == row_index[1]:
-                                self.body_list[j].Update(temporary_body_list[row_index[0]][0], temporary_body_list[row_index[0]][1], temporary_body_list[row_index[0]][2], temporary_body_list[row_index[0]][3], temporary_body_list[row_index[0]][4], now_time)
-                                temporary_body_list[row_index[0]][0] = -1
-
-                            # Use IOU
-                            elif compare_list[row_index[0]][0] >= compare_list[row_index[1]][1] / 2 and now_time - self.body_list[j].last_time > datetime.timedelta(seconds=1):
-                                self.body_list[j].Update(temporary_body_list[row_index[0]][0], temporary_body_list[row_index[0]][1], temporary_body_list[row_index[0]][2], temporary_body_list[row_index[0]][3], temporary_body_list[row_index[0]][4], now_time)
-                                temporary_body_list[row_index[0]][0] = -1
-
-                            # Use Cosine Similarity
-                            else:
-                                self.body_list[j].Update(temporary_body_list[row_index[1]][0], temporary_body_list[row_index[1]][1], temporary_body_list[row_index[1]][2], temporary_body_list[row_index[1]][3], temporary_body_list[row_index[1]][4], now_time)
-                                temporary_body_list[row_index[1]][0] = -1
-                        
-                            # Info
-                            color = COLORS_16[(self.body_list[j].global_id + 1) % 16]
-                            #cv2.rectangle(frame, (int(body_list[j].estimated_x_min), int(body_list[j].estimated_y_min)), (int(body_list[j].estimated_x_max), int(body_list[j].estimated_y_max)), color, 2)                        
-                            cv2.rectangle(frame, (int(self.body_list[j].x_min[0]), int(self.body_list[j].y_min[0])), (int(self.body_list[j].x_max[0]), int(self.body_list[j].y_max[0])), color, 2)                        
-                            cv2.putText(frame, text='id = ' + str(self.body_list[j].global_id), org=(self.body_list[j].x_min[0], self.body_list[j].y_min[0] - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)                              
-
-            # Create new body instance
-            if len(temporary_body_list) != 0:
-                for i in range(len(temporary_body_list)):
-                    if temporary_body_list[i][0] != -1:
-                        self.body_list.append(Body(temporary_body_list[i][0], temporary_body_list[i][1], temporary_body_list[i][2], temporary_body_list[i][3], temporary_body_list[i][4], now_time))  
-
-            # CheckUpdate (experimental)     
-            if len(self.body_list) != 0:
-                for j in range(len(self.body_list)):
-                    self.body_list[j].CheckUpdate()
-
-            # Get face detection data
-            temporary_face_list = []
-            
-            for face_object in result_of_face_detection[self.out_name_FD][0][0]:
-                if face_object[2] > THRESHOLD_FACE_DETECTION:
-                    face_pos = GetXYMinMaxFromDetectionFromOutputObject(face_object,frame)
-                    x_min, y_min, x_max, y_max = face_pos
-                    # Error check
-                    if ((x_max - x_min) * 1.8) - (y_max - y_min) < 0:
-                        pass
-                    else:
-                        # Get face image
-                        face = frame[y_min:y_max,x_min:x_max]
-
-                        # Get age and gender from face image
-                        result_of_age_gender_detection = GetAgeGenderData(face, self.exec_net_AGD, self.input_name_AGD, self.input_shape_AGD)
-
-                        # Get head pose estimation
-                        result_of_head_pose_estimation = GetHeadPoseEstimationData(face, self.exec_net_HPE, self.input_name_HPE, self.input_shape_HPE)
-                
-                        # Get face landmark from face image
-                        result_of_face_landmaek_detection = GetFaceLandmarkDetectionData(face, self.exec_net_LD5, self.input_name_LD5, self.input_shape_LD5, self.out_name_LD5, face_pos)
-
-                        # Get distance from face landmark and gender
-                        result_of_distance_estimation, face_to_cam_angle = GetDistanceFromLandmark(result_of_face_landmaek_detection[0], result_of_face_landmaek_detection[1], result_of_head_pose_estimation, result_of_age_gender_detection, frame.shape[1], frame.shape[0], angle_of_view)
-
-                        # Get perspective data
-                        perspective = GetPerspective(result_of_distance_estimation, face_to_cam_angle, [(result_of_head_pose_estimation[0] * np.pi / 180.0), (result_of_head_pose_estimation[1] * np.pi / 180.0)])
-
-                        # Update object
-                        temporary_face_list.append([x_min, y_min, x_max, y_max, result_of_age_gender_detection[0], result_of_age_gender_detection[1], perspective])
-
-                        # Show data in frame
-                        if show_additional_info == True:
-                            # Face Detection
-                            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-                            # Age Gender Detection
-                            cv2.putText(frame, text='[gender, age]', org=(x_min, y_min - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            age_gender = ' '+result_of_age_gender_detection[1] + ', ' + str(result_of_age_gender_detection[0])
-                            cv2.putText(frame, text=age_gender, org=(x_min, y_min - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            # Face Landmerk Detection
-                            for i in range(len(result_of_face_landmaek_detection)):
-                                cv2.circle(frame, center=(int(result_of_face_landmaek_detection[i][0]), int(result_of_face_landmaek_detection[i][1])), radius=1, color=(0, 255, 0), thickness=1)
-                                cv2.putText(frame, text=str(i), org=(int(result_of_face_landmaek_detection[i][0] + 1), int(result_of_face_landmaek_detection[i][1])), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.0, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            # Distance Estimation
-                            cv2.putText(frame, text='[distance]', org=(x_min, y_max + 20), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' {:.3f}(cm)'.format(result_of_distance_estimation / 10), org=(x_min, y_max + 40), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            # Head Pose Estimation
-                            cv2.putText(frame, text='[head pose]', org=(x_min, y_max + 60), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' yaw   = {:.3f}(degrees)'.format(result_of_head_pose_estimation[0]), org=(x_min, y_max + 80), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' pitch = {:.3f}(degrees)'.format(result_of_head_pose_estimation[1]), org=(x_min, y_max + 100), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' roll  = {:.3f}(degrees)'.format(result_of_head_pose_estimation[2]), org=(x_min, y_max + 120), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            DrawHeadPose(frame, result_of_head_pose_estimation, int((x_max + x_min) / 2), int((y_max + y_min) / 2), color=(0,255,0), scale=2)
-                            # Perspective
-                            cv2.putText(frame, text='[perspective]', org=(x_min, y_max + 140), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' dx = {:.3f}(cm)'.format(perspective[0] / 10), org=(x_min, y_max + 160), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' dy = {:.3f}(cm)'.format(-perspective[1] / 10), org=(x_min, y_max + 180), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                            cv2.putText(frame, text=' dr = {:.3f}(cm)'.format(perspective[2] / 10), org=(x_min, y_max + 200), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
-                        
-
-            # Check face instance
-            if len(self.body_list) != 0:
-                for i in range(len(self.body_list)):
-                    check_face = GetChildObject(self.body_list[i], temporary_face_list, now_time)
-                    if check_face != -1:
-                        self.body_list[i].UpdateFaceData(temporary_face_list[check_face][4], temporary_face_list[check_face][5], temporary_face_list[check_face][6])
-                        color = COLORS_16[(self.body_list[i].global_id + 1) % 16]
-                        cv2.rectangle(frame, (int(temporary_face_list[check_face][0]), int(temporary_face_list[check_face][1])), (int(temporary_face_list[check_face][2]), int(temporary_face_list[check_face][3])), color, 2)
-                        # Age Gender Detection
-                        cv2.putText(frame, text='[gender, age]', org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 25), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
-                        age_gender = ' '+ temporary_face_list[check_face][5] + ', ' + str(temporary_face_list[check_face][4])
-                        cv2.putText(frame, text=age_gender, org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
-                        # IsInterest
-                        cv2.putText(frame, text='[isInterest]', org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 65), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
-                        if IsInterested(temporary_face_list[check_face][6]) == 1.0:
-                            interest = 'yes'
-                        else:
-                            interest = 'no'
-                        cv2.putText(frame, text=interest, org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 45), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
-
-            # Delete error instance
-            if len(self.body_list) != 0:
-                di = 0
-                for i in range(len(self.body_list)):
-                    if self.body_list[i - di].last_time - self.body_list[i - di].first_time < datetime.timedelta(seconds=3) and now_time - self.body_list[i - di].last_time > datetime.timedelta(seconds=2):
-                        del self.body_list[i - di]
-                        di += 1    
-       
-            # Delete lost instance
-            if len(self.body_list) != 0:
-                di = 0
-                for i in range(len(self.body_list)):
-                    if self.body_list[i - di].last_time - self.body_list[i - di].first_time >= datetime.timedelta(seconds=3) and now_time - self.body_list[i - di].last_time > datetime.timedelta(seconds=10):
-                        PushDatabase(self.body_list[i - di], self.client)
-                        del self.body_list[i - di]
-                        di += 1     
-
-        # Show FPS
-        frame_rate = DrawFPS(frame, fps_time, 10, 10)
-        if DEBUG_OPTION == True:
-            print(frame_rate)
-
-        # Show Camera frame
-        frame = cv2.cvtColor(cv2.resize(frame, (int(self.camera_view.winfo_width()), int(self.camera_view.winfo_height()))), cv2.COLOR_BGR2RGB)
-        self.window.photo = PIL.ImageTk.PhotoImage(image = PIL.Image.fromarray(frame)) 
-        self.camera_view.create_image(0,0, image= self.window.photo, anchor = tk.NW)
-
-        end_time = time.time()
-        buffer_time = ((1.0 / int(cam_fps)) - (end_time - start_time)) * 1000
-        self.window.after(int(max(10, buffer_time)), self.MainLoop)
-        pass
+            end_time = time.time()
+            buffer_time = ((1.0 / int(cam_fps)) - (end_time - start_time)) * 1000
+            self.window.after(int(max(10, buffer_time)), self.MainLoop)
 
     def __del__(self):
         # Exit process
         if save_mode == 'SERVER':
-            self.client.Disonnect()
-        self.capture.release()
-        self.settings.Save()
+            self.main_system.client.Disonnect()
+        self.main_system.capture.release()
+        self.main_system.settings.Save()
         pass
 
 if __name__ == '__main__':

@@ -1,0 +1,9 @@
+{
+   "Model of person detection"        :"./models/2021_2/person-detection-retail-0013/FP16/person-detection-retail-0013",
+   "Model of person reidentification" :"./models/2021_2/person-reidentification-retail-0288/FP16/person-reidentification-retail-0288",
+   "Model of face detection"          :"./models/2021_2/face-detection-adas-0001/FP16/face-detection-adas-0001",
+   "Model of age gender recognition"  :"./models/2021_2/age-gender-recognition-retail-0013/FP16/age-gender-recognition-retail-0013",
+   "Model of face landmarks detection":"./models/2021_2/landmarks-regression-retail-0009/FP16/landmarks-regression-retail-0009",
+   "Model of head pose estimation"    :"./models/2021_2/head-pose-estimation-adas-0001/FP16/head-pose-estimation-adas-0001"
+}
+
