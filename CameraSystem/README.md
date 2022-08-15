@@ -93,7 +93,7 @@
 
 2. OpenVINO Runtime をダウンロードします。
    
-   [[Intel® Open Source Technology Center](https://download.01.org/opencv/2021/openvinotoolkit/2021.2/)]([01.org distribution(download.01.org)](https://download.01.org/opencv/2020/openvinotoolkit/2020.3/)) からl_openvino_toolkit_runtime_raspbian_p_2020.3.34.tgzをダウンロードします。
+   [Intel® Open Source Technology Center](https://download.01.org/opencv/2021/openvinotoolkit/2021.2/) からl_openvino_toolkit_runtime_raspbian_p_2020.3.34.tgzをダウンロードします。
 
 3. ダウンロードしたフォルダに移動します。
 
