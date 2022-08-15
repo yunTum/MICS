@@ -91,7 +91,7 @@
 
 2. Download the OpenVINO Runtime.
    
-   Download l_openvino_toolkit_runtime_raspbian_p_2020.3.34.tgz from [Intel® Open Source Technology Center](https://download.01.org/opencv/2021/openvinotoolkit/2021.2/) .
+   Download l_openvino_toolkit_runtime_raspbian_p_2020.3.34.tgz from [Intel® Open Source Technology Center](https://download.01.org/opencv/2020/openvinotoolkit/2020.3/) .
 
 3. Navigate to the folder where you downloaded the software.
 
