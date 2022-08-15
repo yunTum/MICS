@@ -141,7 +141,7 @@
     . [任意の名前]/bin/activate
     ```
 
-11. Automate the startup of the virtual environment." Open the file "/opt/intel/openvino/bin/setupvars.sh" in your editor.
+11. Automate the startup of the virtual environment. Open the file "/opt/intel/openvino/bin/setupvars.sh" in your editor.
     
     ```
     sudo nano /opt/intel/openvino/bin/setupvars.sh
