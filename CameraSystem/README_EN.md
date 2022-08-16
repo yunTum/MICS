@@ -138,7 +138,7 @@
 10. Activate the virtual environment.
     
     ```
-    . [任意の名前]/bin/activate
+    . [Any name]/bin/activate
     ```
 
 11. Automate the startup of the virtual environment. Open the file "/opt/intel/openvino/bin/setupvars.sh" in your editor.
@@ -150,7 +150,8 @@
     Add the following text to the file and save it.
     
     ```
-    [path of a virtual environment]/bin/activate
+    command=". [path of a virtual environment]/bin/activate"
+    eval $command
     ```
 
 12. Download the MICS Camera System file (Python version, for RaspberryPI3+NCS) and extract it to the desired location.

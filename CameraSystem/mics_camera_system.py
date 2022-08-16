@@ -1,7 +1,7 @@
 # mics_camera_system
 # 2022 kasys1422
 # The core app of MICS(Measuring Interest with a Camera System)
-VERSION = '0.0.13'
+VERSION = '0.0.14'
 
 # Import
 import os
@@ -151,7 +151,7 @@ frame_rate = 0.0
 def DrawFPS(frame, fps_time, x:int, y:int):
     fps_time[0] = time.time()
     frame_rate = 1/(fps_time[0] - fps_time[1])
-    cv2.putText(frame, text=str(int(frame_rate))+'fps', org=(x, y + 10), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
+    cv2.putText(frame, text=str(format(frame_rate, '.2f'))+'fps', org=(x, y + 10), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=(0, 255, 0), thickness=2, lineType=cv2.LINE_AA)
     fps_time[1] =  fps_time[0]
     return frame_rate
 
@@ -613,7 +613,7 @@ class Body(Object):
 # WebSocketClient class
 class WebSocketClient():
     def __init__(self, address):
-        self.host = address              #"ws://fast-fjord-64260.herokuapp.com"
+        self.host = address
         self.data_list = []
         websocket.enableTrace(True)     # print log option
         self.isConnected = False
@@ -1115,7 +1115,7 @@ class MainSystemProcess:
                         age_gender = ' '+ temporary_face_list[check_face][5] + ', ' + str(temporary_face_list[check_face][4])
                         cv2.putText(frame, text=age_gender, org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 5), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
                         # IsInterest
-                        cv2.putText(frame, text='[isInterest]', org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 65), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
+                        cv2.putText(frame, text='[is interest]', org=(temporary_face_list[check_face][0], temporary_face_list[check_face][1] - 65), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.5, color=color, thickness=2, lineType=cv2.LINE_AA)
                         if IsInterested(temporary_face_list[check_face][6]) == 1.0:
                             interest = 'yes'
                         else:
@@ -1174,6 +1174,8 @@ def Main():
 
     # Setup window
     dpg.configure_app(init_file=LAYOUT_SETTING_FILE_PATH)
+
+    # Setup theme
     '''
     with dpg.theme() as global_theme:
         with dpg.theme_component(dpg.mvAll):
@@ -1199,6 +1201,7 @@ def Main():
             dpg.add_theme_color(dpg.mvThemeCol_ModalWindowDimBg, window_colors[1])
     dpg.bind_theme(global_theme)
     #'''
+
     with dpg.texture_registry(show=False):
         dpg.add_raw_texture(480, 270, ConvertImageOpenCVToDearPyGUI(np.zeros((480, 270, 3))), tag='video_frame', format=dpg.mvFormat_Float_rgb, use_internal_label=False)
 
@@ -1520,7 +1523,7 @@ class MainLite():
 
             # Exit process
             try: 
-                buffer_data_exit =  self.settings_q_exit.get_nowait()
+                buffer_data_exit =  self.main_system.settings_q_exit.get_nowait()
                 if buffer_data_exit == 1:
                     print('[Info] GUI closed')
                     break
@@ -1529,13 +1532,13 @@ class MainLite():
 
             # Get setting param from GUI
             try: 
-                buffer_data_width =  self.settings_q_width.get_nowait()
+                buffer_data_width =  self.main_system.settings_q_width.get_nowait()
                 size_of_interest_check_area = buffer_data_width
                 print('[Info] Change param [Width of region to detect interest:' + str(buffer_data_width) + ']')
             except:
                 pass
             try: 
-                buffer_data_offset =  self.settings_q_offset.get_nowait()
+                buffer_data_offset =  self.main_system.settings_q_offset.get_nowait()
                 interest_check_area_offset = buffer_data_offset
                 print('[Info] Location of the center of the region of interest detection (with camera at origin and rightward facing positive):' + str(buffer_data_offset) + ']')
             except:

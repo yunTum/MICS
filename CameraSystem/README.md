@@ -154,7 +154,8 @@
     ファイルに次の文章を追記して保存します。
     
     ```
-    [仮想環境の絶対パス]/bin/activate
+    command=". [仮想環境の絶対パス]/bin/activate"
+    eval $command
     ```
 
 12. MICS Camera Systemのファイル(Python版、RaspberryPI3+NCS用)をダウンロードし、任意の場所に展開します。
