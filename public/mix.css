@@ -1,0 +1,429 @@
+* {
+    margin: 0; 
+  }
+header{
+    
+    display:flex;
+    width:100%;
+    height:100px;
+    background-color:rgb(241, 102, 9);
+    align-items:center;
+}
+.logo img{
+    height:80px;
+    width:80px;
+    margin-left: 25px;
+    margin-top:10px;   
+}
+.help,a{
+    text-decoration: none;
+    color:white;
+    margin-right: 20px;
+    
+}
+.title{
+    margin-right:auto;
+    color: white;
+}
+.menugroup{
+    display: flex;
+}
+.help{
+    list-style: none;
+    display:inline-block;
+    margin-top:8px;
+    margin-right: 13px;
+    font-weight: bold;
+}
+.questionlogo{
+    list-style:none;
+    margin-top:7px;
+}
+.questionlogo img{
+    height:25px;
+    width:25px;
+}
+
+.container{
+    background-color:whitesmoke; 
+    height:4400px;
+}
+
+
+
+.searcharea{
+    width:60%;
+    height:300px;
+    margin:0 auto;
+    background-color:white;
+    border-radius:20px;
+    position:relative;
+    top:1.5%;
+    text-align: center;
+     
+    
+    border-bottom: solid 3px #bdc0c3;
+    border-left:solid 2px #bdc0c3 ;
+    border-radius: 9px;
+    padding: 0.5em 1em;
+}
+.inputarea{
+    position:relative;
+    margin:0 auto;
+    width:88%;
+    position:relative;
+    top:10%;
+    display:flex; 
+    
+}
+.searcharea h1{
+    color:rgb(241, 102, 9);
+    margin-top: 10px;
+    letter-spacing: 0.005em;
+    font-size: 30px;
+    font-weight: 500;
+}
+.searcharea hr{
+    border:solid 1px #e2e2e2;
+    border-radius: 5px;
+    margin:0 auto;
+    width:98%;
+}
+.datetime1{
+    width:100%;
+    font-size:large;   
+}
+.datetime2{
+    width:100%;
+    font-size:large;
+}
+.date{
+    margin-bottom: 3px;
+    margin-top: 2px;
+}
+.inputarea p{
+    color:rgb(241, 102, 9);
+    font-weight:400;
+}
+.searchbutton{
+    height:25px;
+    width:100%;
+    position:relative;
+    margin:0 auto;
+    top:20%;
+    text-align: center;
+}
+.searchbutton input{
+    border-color:rgb(254, 131, 49);
+    background-color:rgb(254, 131, 49) ;
+    border-radius:8px;
+    border-width:medium;
+    font-size: 16px;
+    color:white;
+    height:36px; 
+    width:25%; 
+}
+.inputarea input{
+    
+    border-color:rgb(241, 102, 9);
+    border-radius:8px;
+    border-width:2px;
+    font-size: 17px;
+    color:#8b8c8e;
+    height:36px;
+    width:96%;
+}
+.searcharea p{
+    position:relative;
+    bottom:0%;
+}
+
+
+.graphA h1{
+    color:rgb(241, 102, 9);
+    font-weight: 500;
+}
+.graphA{
+    width:85%;
+    height:400px;
+    margin:0 auto;
+    position:relative;
+    top:3%;
+    display:flex;
+}
+.graphA1{
+    width:35%;
+    height:420px;
+    margin:0 auto;
+   
+    background-color: white;
+    margin-right:40px;
+
+    background: white;
+    border-bottom: solid 3px #bdc0c3;
+    border-left:solid 2px #bdc0c3 ;
+    border-radius: 9px;
+    padding: 0.5em 1em;
+}
+.graphA1title{
+    display:flex;
+    margin-left: 15px;
+    margin-top: 10px;
+}
+.graphA1 hr{
+    border:solid 1px #e2e2e2;
+    border-radius: 5px;
+    width:97%;
+    margin:0 auto;
+}
+.graphA1inner {
+    width:85%;
+    margin:0 auto;
+    
+}
+
+
+.graphA2{
+    width:65%;
+    height:420px;
+    margin:0 auto;
+    
+    background: white;
+    border-bottom: solid 3px #bdc0c3;
+    border-left:solid 2px #bdc0c3 ;
+    border-radius: 9px;
+    padding: 0.5em 1em;
+}
+.graphA2title{
+    display:flex;
+    margin-left: 20px;
+    margin-top: 10px;
+}
+.graphA2 hr{
+    border:solid 1px #e2e2e2;
+    border-radius: 5px;
+    width:97%;
+    margin:0 auto;
+}
+.graphA2inner {
+    width:90%;
+    margin:0 auto;
+    display:flex;
+}
+.A21{
+    width:45%;
+    margin:0 auto;
+}
+.A21 h2{
+    color:#5c5c5c;
+    font-weight: 300;
+}
+.A22{
+    width:45%;
+    margin:0 auto;
+}
+.A22 h2{
+    color:#5c5c5c;
+    font-weight: 300;
+    
+}
+
+
+.graphB h1{
+    color:rgb(241, 102, 9);
+    font-weight: 500;
+}
+.graphB hr{
+    border:solid 1px #e2e2e2;
+    border-radius: 5px;
+    width:97%;
+    margin:0 auto;
+}
+.graphB{
+    width:85%;
+    height:400px;
+    margin:0 auto;
+    position:relative;
+    top:5%;
+
+    background: white;
+    border-bottom: solid 3px #bdc0c3;
+    border-left:solid 2px #bdc0c3 ;
+    border-radius: 9px;
+    padding: 0.5em 1em;
+}
+.graphBtitle{
+    display:flex;
+    margin-left: 33px;
+    margin-top: 10px;
+}
+.B1{
+    height:40%;
+    margin:0 auto;
+    display:flex;
+}
+.B1h2{
+    margin:auto 0;
+    margin-left: 20px;
+}
+.B1h2 h2{
+    color:#5c5c5c;
+    font-weight:300;
+}
+.B1inner{
+    width:80%;
+}
+.B2{
+    height:40%;
+    margin:0 auto;
+    display:flex;
+}
+.B2h2{
+    margin:auto 0;
+    margin-left: 20px;
+}
+.B2h2 h2{
+    color:#5c5c5c;
+    font-weight: 300;
+}
+.B2inner{
+    width:80%;
+}
+
+
+
+.graphC{
+    width:85%;
+    height:400px;
+    margin:0 auto;
+    position:relative;
+    top:7%;
+
+    background: white;
+    border-bottom: solid 3px #bdc0c3;
+    border-left:solid 2px #bdc0c3 ;
+    border-radius: 9px;
+    padding: 0.5em 1em;
+}
+.graphC h1{
+    color:rgb(241, 102, 9);
+    font-weight: 500;
+}
+.graphCtitle{
+    display:flex;
+    margin-left: 33px;
+    margin-top: 10px;
+}
+.graphC hr{
+    border:solid 1px #e2e2e2;
+    border-radius: 5px;
+    width:97%;
+    margin:0 auto;
+}
+
+
+.graphD1 h1{
+    color:rgb(241, 102, 9);
+    font-weight: 500;
+}
+.graphD1{
+    width:85%;
+    height:1100px;
+    margin:0 auto;
+    position:relative;
+    top:9%;
+
+    background: white;
+    border-bottom: solid 3px #bdc0c3;
+    border-left:solid 2px #bdc0c3 ;
+    border-radius: 9px;
+    padding: 0.5em 1em;
+}
+.graphD1title{
+    display:flex;
+    margin-left: 33px;
+    margin-top: 10px;
+}
+.graphD1 hr{
+    border:solid 1px #e2e2e2;
+    border-radius: 5px;
+    width:97%;
+    margin:0 auto;
+}
+.graphD11{
+    height: 30%;
+}
+.graphD1 h2{
+    color:#5c5c5c;
+    font-weight:300;
+    margin-left: 15px;
+    margin-top: 12px;
+}
+.graphD12{
+    height: 30%;
+}
+.graphD13{
+    height: 30%;
+}
+
+
+
+
+.graphD2 h1{
+    color:rgb(241, 102, 9);
+    font-weight: 500;
+}
+.graphD2 h2{
+    color:#5c5c5c;
+    font-weight:300;
+    margin-left: 15px;
+    margin-top: 12px;
+}
+.graphD2{
+    width:85%;
+    height:1100px;
+    margin:0 auto;
+    position:relative;
+    top:11%;
+
+    background: white;
+    border-bottom: solid 3px #bdc0c3;
+    border-left:solid 2px #bdc0c3 ;
+    border-radius: 9px;
+    padding: 0.5em 1em;
+}
+.graphD2title{
+    display:flex;
+    margin-left: 33px;
+    margin-top: 10px;
+}
+.graphD2 hr{
+    border:solid 1px #e2e2e2;
+    border-radius: 5px;
+    width:97%;
+    margin:0 auto;
+}
+.graphD21{
+    height: 30%;
+}
+.graphD22{
+    height: 30%;
+}
+.graphD23{
+    height: 30%;
+}
+
+
+footer{
+    display:flex;
+    width:100%;
+    height:200px;
+    background-color:rgb(19, 20, 51);
+    align-items:center;
+}
+.footertitle{
+    
+    margin-left:2%;
+    margin-right: auto;
+    color: white;
+}
