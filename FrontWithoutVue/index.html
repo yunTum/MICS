@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>native_js_mics</title>
+    <link rel="stylesheet" href="css/mics.css">
+    <!-- External Source -->
+    <script defer src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.0.0/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-stacked100@1.0.0"></script>
+    <!-- Our Source -->
+    <script defer src="js/serch.js"></script>
+    <script defer src="js/datain.js"></script>
+    <script defer src="js/grahp.js"></script>
+    <script defer src="js/mics.js"></script>
+  </head>
+  <body>
+    <header>
+      <h1 class="logo"><a href="#"><img src="img/micsrogo.png" alt="サイトタイトル"></a></h1>
+      <h1 class="title">Mics｜Analytics</h1>
+      <nav class="nav">
+          <ul class="menugroup">
+              <li class="questionlogo"><a href="#"><img src="img/icon_115742_256.png" alt=""></a></li>
+              <li class="help"><a href="#">ヘルプ</a></li>    
+          </ul>
+      </nav>
+    </header>
+    <div class="container" id="serch_container">
+      <div class="searcharea">
+        <h1>Plotting interest data on a graphs</h1>
+        <hr noshade> 
+        <div class="inputarea">
+            <div class="datetime1">
+                <p>Beginning</p>
+                <input type="date" id="input-date1" class="date">
+                <input type="time" id="input-time1">
+            </div>
+            <div class="datetime2">
+                <p>End</p>
+                <input type="date" id="input-date2"class="date">
+                <input type="time" id="input-time2">
+            </div>
+        </div>
+
+        <div class="searchbutton"><input type="button" onclick="mics_data.PullMessage()" value="Plot"></div>
+          
+          <p id="output-message"></p>
+
+      </div>
+      
+      <div id="app" class="app"></div>
+    
+    </div>
+    <footer>
+      <h1 class="footertitle">Measuring Interest with a Camera System</h1>
+      <nav class="nav">
+          <ul class="menugroup">
+              <li class="questionlogo"><a href="#"><img src="img/icon_115742_256.png" alt=""></a></li>
+              <li class="help"><a href="#">ヘルプ</a></li>    
+          </ul>
+      </nav>
+    </footer>
+  </body>
+
+</html>
