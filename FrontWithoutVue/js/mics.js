@@ -34,7 +34,6 @@ class MICS{
                 this.interest_data = interest_data;
                 this.graph.Update(this);
             }
-
         }
     }
 
