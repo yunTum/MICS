@@ -7,6 +7,7 @@ let ApiData = [];
 let d1=0;
 let d2=0;
 let InterestData=[]
+
 // JSONオブジェクトへ変換
 //指定された時間の受け取りとデータのリクエスト
 function PullMessage(MICS_class){
@@ -34,6 +35,7 @@ function PullMessage(MICS_class){
   //*/
 
   //通信をおこなってデータゲット
+  console.log("[Info] Connect to server");
   axios.get('https://fast-fjord-64260.herokuapp.com/camera-data', {
     params: {
       start_time: d1,
@@ -41,9 +43,16 @@ function PullMessage(MICS_class){
     }
   })
   .then(response => {
+    console.log("[Info] Successfully connect to server");
     ApiData= response.data
     InterestData = JSON.parse(JSON.stringify(ApiData));
-    console.log(InterestData);
+    //console.log(InterestData);
     MICS_class.GetMessage(d1, d2, InterestData)
-  }) 
+  }).catch(err => {
+    const {
+      status,
+      statusText
+    } = err.response;
+    console.log(`[Error] Could not connect to server (HTTP Status: ${status} ${statusText})`);
+  });
 }

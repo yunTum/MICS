@@ -19,16 +19,16 @@ class MICS{
     GetMessage(date_first, date_last, interest_data){
         if(interest_data != '[]'){
             if(this.is_pulled == false){
-                console.log("[Info] Successful data entry into MICS class");
                 this.date_first = date_first;
                 this.date_last = date_last;
                 this.interest_data = interest_data;
+                console.log("[Info] Successfully input data into MICS class");
                 this.is_pulled = true;
                 this.container.style.height = 4400 + "px";
                 this.container.style.paddingTop = 0 + "px";
                 this.graph = new MICSGrahp(this);
             }else{
-                console.log("[Info] Successful update MICS class");
+                console.log("[Info] Successfully updated MICS class");
                 this.date_first = date_first;
                 this.date_last = date_last;
                 this.interest_data = interest_data;

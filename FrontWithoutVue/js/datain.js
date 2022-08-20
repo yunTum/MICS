@@ -12,7 +12,6 @@ class DataIN{
         var user_intime =d1;
         var user_outtime=d2;
         var bet_time=user_outtime-user_intime;
-        console.log(bet_time)
 
         //１日～31日までの場合1daymax31本
         var label_unix_in=[];
@@ -47,8 +46,6 @@ class DataIN{
                 var backdata_arr_time_in= backdata_arr.filter(x => x.end_time_unix <= user_intime+(i+86400) && x.end_time_unix > user_intime+i );
                 backdata_arr_time.push(backdata_arr_time_in);
             }
-            
-            console.log(backdata_arr_time)
             
             //関心度で分ける
             var int_line=70
