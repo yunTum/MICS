@@ -77,18 +77,58 @@ const get_data = () => {
 // })
 // }
 
+const PyTime2JascTime = (Pytime) => {
+  //payload.~_time : YYYYMMDDhhmmss
+  const year = parseInt(Pytime.substring(0, 4));
+  const month = parseInt(Pytime.substring(4, 6));
+  const day = parseInt(Pytime.substring(6, 8));
+  const hour = parseInt(Pytime.substring(8, 10));
+  const min = parseInt(Pytime.substring(10, 12));
+  // YYYYMMDDHHMMSS -> YYYY-MM-DD hh:mm:ss        
+  const date = new Date(year, month - 1, day, hour, min);
+  return date
+}
+
+const convertDatetimeFromUnixtime = (UnixTime) => {
+  
+  const date = new Date(UnixTime)
+  let format = "yyyy-MM-dd hh:mm:ss"
+  
+  const year = date.getFullYear()
+  const month = zeroPadding(date.getMonth()+1)
+  const day = zeroPadding(date.getDate())
+  const hour = zeroPadding(date.getHours())
+  const minutes = zeroPadding(date.getMinutes())
+  const seconds = zeroPadding(date.getSeconds())
+  
+  return format
+  .replace("yyyy", year)
+  .replace("MM", month)
+  .replace("dd", day)
+  .replace("hh", hour)
+  .replace("mm", minutes)
+  .replace("ss", seconds)
+  
+  function zeroPadding(value) {
+      return ("0" + value).slice(-2);
+  }
+}
+
 //Register Data to MySQL
 const insert_data = (payload) => {
+  var start_time = PyTime2JascTime(payload.start_time)
+  var end_time = PyTime2JascTime(payload.end_time)
+  
   // Unix time
-  var end_time_unix = Date.parse(payload.end_time)/1000
+  var end_time_unix = Date.parse(end_time)/1000
   var sql = 'INSERT INTO data VALUES (?, ?, ?, ?, ?, ?, ?);'
   var palams = [
     null,
     payload.interested, 
     payload.age, 
     payload.gender, 
-    payload.start_time, 
-    payload.end_time,
+    start_time, 
+    end_time,
     end_time_unix
   ]
   //Throw query and Save data
@@ -102,6 +142,7 @@ const insert_data = (payload) => {
 })
 }
 
+exports.convertDatetimeFromUnixtime = convertDatetimeFromUnixtime;
 exports.insert_data = insert_data;
 exports.database = database;
 exports.createtable = createtable;
