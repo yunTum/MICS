@@ -11,8 +11,6 @@ class MICS{
         this.interest_data = [];
         this.is_pulled = false;
         this.container = document.getElementById("serch_container");
-        this.container.style.height = 400 + "px";
-        this.container.style.paddingTop = 60 + "px";
     }
     
     //サーバーからデータ取得

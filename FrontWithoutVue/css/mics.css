@@ -46,6 +46,8 @@ header{
 
 .container{
     background-color:whitesmoke; 
+    height:400px;
+    padding-top: 60px;
 }
 
 
