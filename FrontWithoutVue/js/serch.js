@@ -36,6 +36,11 @@ function PullMessage(MICS_class){
 
   //通信をおこなってデータゲット
   console.log("[Info] Connect to server");
+
+  //ボタン非アクティブ化(2重リクエスト防止)
+  this.button = document.getElementById("Plot");
+  this.button.disabled = true;
+
   axios.get('https://fast-fjord-64260.herokuapp.com/camera-data', {
     params: {
       start_time: d1,
@@ -48,11 +53,16 @@ function PullMessage(MICS_class){
     InterestData = JSON.parse(JSON.stringify(ApiData));
     //console.log(InterestData);
     MICS_class.GetMessage(d1, d2, InterestData)
+    //ボタン再アクティブ化
+    this.button.disabled = false;
   }).catch(err => {
     const {
       status,
       statusText
     } = err.response;
     console.log(`[Error] Could not connect to server (HTTP Status: ${status} ${statusText})`);
+    alert(`[Error] Could not connect to server (HTTP Status: ${status} ${statusText})`)
+    //ボタン再アクティブ化
+    this.button.disabled = false;
   });
 }
