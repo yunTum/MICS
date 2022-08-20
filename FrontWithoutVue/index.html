@@ -8,8 +8,8 @@
     <link rel="stylesheet" href="css/mics.css">
     <!-- External Source -->
     <script defer src="https://unpkg.com/axios/dist/axios.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.0.0/dist/chart.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-stacked100@1.0.0"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/chart.js@3.0.0/dist/chart.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/chartjs-plugin-stacked100@1.0.0"></script>
     <!-- Our Source -->
     <script defer src="js/serch.js"></script>
     <script defer src="js/datain.js"></script>
@@ -31,6 +31,7 @@
       <div class="searcharea">
         <h1>Plotting interest data on a graphs</h1>
         <hr noshade> 
+        <!-- 日付指定 -->
         <div class="inputarea">
             <div class="datetime1">
                 <p>Beginning</p>
@@ -43,13 +44,13 @@
                 <input type="time" id="input-time2">
             </div>
         </div>
-
-        <div class="searchbutton"><input type="button" onclick="mics_data.PullMessage()" value="Plot"></div>
-          
-          <p id="output-message"></p>
-
+        <!-- データ取得ボタン -->
+        <div class="searchbutton"><input type="button" onclick="mics_data.PullMessage()" value="Plot"></div>  
+        <!-- デバッグ表示部分 -->
+        <!-- <p id="output-message"></p> -->
       </div>
-      
+
+      <!-- グラフ描画部分 -->
       <div id="app" class="app"></div>
     
     </div>

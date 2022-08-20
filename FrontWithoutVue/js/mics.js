@@ -14,6 +14,7 @@ class MICS{
         this.container.style.height = 400 + "px";
         this.container.style.paddingTop = 60 + "px";
     }
+    
     //サーバーからデータ取得
     GetMessage(date_first, date_last, interest_data){
         if(interest_data != '[]'){

@@ -3,6 +3,7 @@ MICS Front
 Grahp表示関係
 */
 
+//指定した要素を子含めて全削除
 function removeAll(element){
     while(element.firstChild){
         element.removeChild(element.firstChild);
@@ -10,40 +11,50 @@ function removeAll(element){
     element.remove();
 }
 
+//グラフ表示クラス
 class MICSGrahp{
+    //public--------------------------------------------------------------------------------------------
+
+    //コンストラクタ
     constructor(MICS_class) {
-        this.AddGraphDOM();
+        this.#AddGraphDOM();
         this.data = new DataIN(MICS_class.date_first, MICS_class.date_last, MICS_class.interest_data);
-        this.LoadGrahps();
+        this.#LoadGrahps();
     }
 
+    //グラフの再描画
     Update(MICS_class){
         removeAll(document.getElementById("graphA" ))
         removeAll(document.getElementById("graphB" ))
         removeAll(document.getElementById("graphC" ))
         removeAll(document.getElementById("graphD1"))
         removeAll(document.getElementById("graphD2"))
-        this.AddGraphDOM();
+        this.#AddGraphDOM();
         this.data = new DataIN(MICS_class.date_first, MICS_class.date_last, MICS_class.interest_data);
-        this.LoadGrahps();
+        this.#LoadGrahps();
     }
 
-    LoadGrahps(){
-        this.GrahpA1();
-        this.GrahpA21();
-        this.GrahpA22();
-        this.GrahpB1();
-        this.GrahpB2();
-        this.GrahpC1();
-        this.GrahpD11();
-        this.GrahpD12();
-        this.GrahpD13();
-        this.GrahpD21();
-        this.GrahpD22();
-        this.GrahpD23();
+    //private-------------------------------------------------------------------------------------------
+    
+    //グラフの描画
+    #LoadGrahps(){
+        this.#GrahpA1();
+        this.#GrahpA21();
+        this.#GrahpA22();
+        this.#GrahpB1();
+        this.#GrahpB2();
+        this.#GrahpC1();
+        this.#GrahpD11();
+        this.#GrahpD12();
+        this.#GrahpD13();
+        this.#GrahpD21();
+        this.#GrahpD22();
+        this.#GrahpD23();
     }
 
-    GrahpA1(){
+    //それぞれのグラフを表示する関数
+
+    #GrahpA1(){
         const element = document.getElementById('graph_A1').getContext('2d');
         const chart = new Chart(element, {
             type:'pie',
@@ -62,7 +73,7 @@ class MICSGrahp{
        });
     }
 
-    GrahpA21(){
+    #GrahpA21(){
         const element = document.getElementById('graph_A21').getContext('2d');
         const chart = new Chart(element, {
             type:'pie',
@@ -79,7 +90,7 @@ class MICSGrahp{
        });
     }
 
-    GrahpA22(){
+    #GrahpA22(){
         const element = document.getElementById('graph_A22').getContext('2d');
         const chart = new Chart(element, {
             type:'pie',
@@ -96,7 +107,7 @@ class MICSGrahp{
        });
     }
 
-    GrahpB1(){
+    #GrahpB1(){
         const element = document.getElementById('graph_B1').getContext('2d');
         const chart = new Chart(element, {
             type:'bar',
@@ -163,7 +174,7 @@ class MICSGrahp{
        });
     }
 
-    GrahpB2(){
+    #GrahpB2(){
         const element = document.getElementById('graph_B2').getContext('2d');
         const chart = new Chart(element, {
             type:'bar',
@@ -230,7 +241,7 @@ class MICSGrahp{
        });
     }
 
-    GrahpC1(){
+    #GrahpC1(){
         const element = document.getElementById('graph_C1').getContext('2d');
         const chart = new Chart(element, {
             type:'bar',
@@ -284,7 +295,7 @@ class MICSGrahp{
         });
     }
 
-    GrahpD11(){
+    #GrahpD11(){
         const element = document.getElementById('graph_D11').getContext('2d');
         const chart = new Chart(element, {
             type:'bar',
@@ -363,7 +374,7 @@ class MICSGrahp{
        });
     }
 
-    GrahpD12(){
+    #GrahpD12(){
         const element = document.getElementById('graph_D12').getContext('2d');
         const chart = new Chart(element, {
             type:'bar',
@@ -443,7 +454,7 @@ class MICSGrahp{
        });
     }
 
-    GrahpD13(){
+    #GrahpD13(){
         const element = document.getElementById('graph_D13').getContext('2d');
         const chart = new Chart(element, {
             type:'bar',
@@ -522,7 +533,7 @@ class MICSGrahp{
        });
     }
 
-    GrahpD21(){
+    #GrahpD21(){
         const element = document.getElementById('graph_D21').getContext('2d');
         const chart = new Chart(element, {
             type:'bar',
@@ -601,7 +612,7 @@ class MICSGrahp{
        });
     }
 
-    GrahpD22(){
+    #GrahpD22(){
         const element = document.getElementById('graph_D22').getContext('2d');
         const chart = new Chart(element, {
             type:'bar',
@@ -681,7 +692,7 @@ class MICSGrahp{
         });
     }
 
-    GrahpD23(){
+    #GrahpD23(){
         const element = document.getElementById('graph_D23').getContext('2d');
         const chart = new Chart(element, {
             type:'bar',
@@ -759,7 +770,8 @@ class MICSGrahp{
         });
     }
 
-    AddGraphDOM(){
+    //HTMLにグラフ部分を追加するする関数
+    #AddGraphDOM(){
         this.new_HTML_data = `
         <div class="graphA" id="graphA">
             <div class="graphA1">
