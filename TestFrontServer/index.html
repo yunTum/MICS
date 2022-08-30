@@ -3,8 +3,8 @@
 <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
 <script>
 
-//axios.defaults.baseURL = 'http://localhost:3000';
-axios.defaults.baseURL = 'https://fast-fjord-64260.herokuapp.com/';
+axios.defaults.baseURL = 'http://localhost:3000';
+//axios.defaults.baseURL = 'https://fast-fjord-64260.herokuapp.com/';
 axios.defaults.headers.post['Content-Type'] = 'application/json;charset=utf-8';
 //CORS setting
 axios.defaults.headers.post['Access-Control-Allow-Origin'] = '*';
@@ -13,11 +13,12 @@ axios.defaults.headers.post['Access-Control-Allow-Origin'] = '*';
 //axios.get('http://localhost:3000/camera-data?start_time=20220811150432&end_time=20220811160432')
 
 //heroku server
-axios.get('https://fast-fjord-64260.herokuapp.com/camera-data',
+axios.get('http://localhost:3000/camera-data',
+//axios.get('https://fast-fjord-64260.herokuapp.com/camera-data',
 {
    params:{
-      start_time: 20220801010432,
-      end_time: 20220820060432
+      start_time: 1659435581,
+      end_time: 1660898083
    }
 })
 

@@ -1,11 +1,10 @@
 var express = require('express');
 var router = express.Router();
-const { get_data } = require('../public/model/db-querys');
 
 /* GET home page. */
-router.get('/iot-data', function(req, res, next) {
-  var value = get_data()[0]
-  res.render('output', { title: 'Express', data: value });
+router.get('/', cors(), function(req, res, next) {
+  res.render('index', { title: 'HOME' });
+  res.send('Hello World')
+  res.json({'message': 'Hello World'})
 });
-
 module.exports = router;

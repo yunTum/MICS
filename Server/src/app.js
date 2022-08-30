@@ -8,23 +8,6 @@ const { insert_data} = require('./public/model/db-querys');
 var WebSocketServer = require("ws").Server
 var app = express();
 
-// Database connect
-// database().connect((err) => {
-//     if (err) throw err;
-//     console.log('Connected');
-
-//     try {
-//       createtable();
-//       console.log('Created');
-//     } catch (e) {
-//       console.error(e);
-//       console.log('Create Error');
-//     }
-// });
-
-//handleDisconnect(); 
-
-
 // view engine setup
 app.set('port', process.env.PORT || 3000);
 app.set('views', path.join(__dirname, 'views'));
@@ -36,11 +19,8 @@ app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// var indexRouter = require('./routes/index');
-// app.use('/', indexRouter);
-
-var homeRouter = require('./routes/home');
-app.use('/home', homeRouter);
+var indexRouter = require('./routes/index');
+app.use('/', indexRouter);
 
 var timeDataRouter = require('./routes/timedata');
 app.use('/camera-data', timeDataRouter);

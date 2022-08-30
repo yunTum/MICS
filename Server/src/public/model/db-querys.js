@@ -84,8 +84,10 @@ const PyTime2JascTime = (Pytime) => {
   const day = parseInt(Pytime.substring(6, 8));
   const hour = parseInt(Pytime.substring(8, 10));
   const min = parseInt(Pytime.substring(10, 12));
+  const sec = parseInt(Pytime.substring(12, 14));
   // YYYYMMDDHHMMSS -> YYYY-MM-DD hh:mm:ss        
-  const date = new Date(year, month - 1, day, hour, min);
+  const date = new Date(year, month - 1, day, hour + 9, min, sec);
+  
   return date
 }
 
@@ -118,7 +120,7 @@ const convertDatetimeFromUnixtime = (UnixTime) => {
 const insert_data = (payload) => {
   var start_time = PyTime2JascTime(payload.start_time)
   var end_time = PyTime2JascTime(payload.end_time)
-  
+
   // Unix time
   var end_time_unix = Date.parse(end_time)/1000
   var sql = 'INSERT INTO data VALUES (?, ?, ?, ?, ?, ?, ?);'
