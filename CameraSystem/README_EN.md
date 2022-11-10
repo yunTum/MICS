@@ -8,7 +8,7 @@
 
 - Python 3.9
 
-- OpenVINO 2022.2
+- OpenVINO 2022.1
 
 - DearPyGUI
 
